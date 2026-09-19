@@ -12,6 +12,10 @@ from collections.abc import Sequence
 import torch
 from torch import nn
 
+# Seed of the fixed token subset used when the model is not training, so that
+# evaluation and inference reproduce the same forecast for the same input.
+_EVAL_ROUTE_SEED = 0
+
 
 class SparseReslim(nn.Module):
     """A compact Sparse-Reslim forecasting backbone.
@@ -20,7 +24,8 @@ class SparseReslim(nn.Module):
     at each spatial location, and uses all tokens in the early and late
     Transformer blocks.  Only ``keep_ratio`` of the tokens enter the middle
     blocks.  Their residual updates are scattered back onto the dense grid, so
-    skipped tokens follow an identity path.
+    skipped tokens follow an identity path.  The subset is resampled for every
+    batch item while training and held fixed during evaluation.
 
     Inputs may be ``[batch, time, variable, height, width]`` or
     ``[batch, variable, height, width]``.  Forecasts have shape
@@ -184,10 +189,20 @@ class SparseReslim(nn.Module):
             num_keep = max(1, int(sequence_length * self.keep_ratio))
             self.last_sparse_token_count = num_keep
 
-            # Parameter-free routing: independently sample a token subset per item.
-            indices = torch.rand(
-                batch, sequence_length, device=tokens.device
-            ).topk(num_keep, dim=1, sorted=False).indices
+            # Parameter-free routing: independently sample a token subset per
+            # item while training.  Evaluation reuses one fixed subset instead,
+            # because a deterministic forecast must not change between two
+            # identical calls.
+            if self.training:
+                scores = torch.rand(
+                    batch, sequence_length, device=tokens.device
+                )
+                indices = scores.topk(num_keep, dim=1, sorted=False).indices
+            else:
+                generator = torch.Generator().manual_seed(_EVAL_ROUTE_SEED)
+                scores = torch.rand(1, sequence_length, generator=generator)
+                indices = scores.topk(num_keep, dim=1, sorted=False).indices
+                indices = indices.to(tokens.device).expand(batch, num_keep)
             indices = indices.sort(dim=1).values
             expanded_indices = indices.unsqueeze(-1).expand(-1, -1, embed_dim)
             sparse_tokens = tokens.gather(1, expanded_indices)

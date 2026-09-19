@@ -36,9 +36,19 @@ def _load_normalization(root: Path, variables: tuple[str, ...]):
         raise FileNotFoundError(
             "Expected normalize_mean.npz and normalize_std.npz in the ERA5 root"
         )
+
+    def _scalar(store, name: str, kind: str) -> float:
+        value = np.asarray(store[name]).reshape(-1)
+        if value.size != 1:
+            raise ValueError(
+                f"{kind} for {name!r} holds {value.size} values; this example "
+                "only supports single-level variables with a scalar statistic"
+            )
+        return float(value[0])
+
     with np.load(means_path) as mean_file, np.load(stds_path) as std_file:
-        means = {name: float(np.asarray(mean_file[name]).reshape(-1)[0]) for name in variables}
-        stds = {name: float(np.asarray(std_file[name]).reshape(-1)[0]) for name in variables}
+        means = {name: _scalar(mean_file, name, "mean") for name in variables}
+        stds = {name: _scalar(std_file, name, "standard deviation") for name in variables}
     if any(value == 0 for value in stds.values()):
         raise ValueError("normalization standard deviations must be non-zero")
     return means, stds
@@ -57,7 +67,7 @@ class ERA5ForecastDataset(IterableDataset):
         history: int,
         window: int,
         pred_range: int,
-        shuffle_files: bool,
+        shuffle: bool,
     ) -> None:
         super().__init__()
         self.files = sorted((root / split).glob("*.npz"))
@@ -70,15 +80,19 @@ class ERA5ForecastDataset(IterableDataset):
         self.history = history
         self.window = window
         self.pred_range = pred_range
-        self.shuffle_files = shuffle_files
+        self.shuffle = shuffle
 
     def __iter__(self):
+        # Shard the deterministic file list before shuffling.  Every worker
+        # draws from its own random stream, so shuffling first would give the
+        # workers different permutations and the strided slices below would
+        # then duplicate some files and drop others.
         files = list(self.files)
-        if self.shuffle_files:
-            random.shuffle(files)
         worker = get_worker_info()
         if worker is not None:
             files = files[worker.id :: worker.num_workers]
+        if self.shuffle:
+            random.shuffle(files)
 
         for path in files:
             with np.load(path) as data:
@@ -94,7 +108,12 @@ class ERA5ForecastDataset(IterableDataset):
             total_steps = min(array.shape[0] for array in arrays.values())
             first_input = (self.history - 1) * self.window
             last_input = total_steps - self.pred_range
-            for time_index in range(first_input, last_input):
+            # Consecutive samples overlap heavily in time, so the sample
+            # order inside a file is shuffled as well and not only the files.
+            time_indices = list(range(first_input, last_input))
+            if self.shuffle:
+                random.shuffle(time_indices)
+            for time_index in time_indices:
                 history_indices = [
                     time_index - offset * self.window
                     for offset in reversed(range(self.history))
@@ -193,6 +212,15 @@ def run_training(args) -> None:
 
     if args.era5_dir is None:
         raise SystemExit("ERA5_DIR is required unless --smoke-test is used")
+    if args.devices > 1:
+        # The streaming dataset shards its files over dataloader workers only,
+        # so every extra rank would replay the same samples.
+        raise SystemExit(
+            "This example is single-device; use --devices 1. See the full "
+            "Sparse-Reslim repository for the distributed workflow."
+        )
+    # Seed before anything random happens, including the weight initialisation.
+    pl.seed_everything(args.seed, workers=True)
     root = args.era5_dir.expanduser().resolve()
     img_size = _infer_image_size(root, args.input_vars[0])
     if img_size[0] % args.patch_size or img_size[1] % args.patch_size:
@@ -209,13 +237,17 @@ def run_training(args) -> None:
         pred_range=args.pred_range,
     )
     train_dataset = ERA5ForecastDataset(
-        split="train", shuffle_files=True, **common_dataset_args
+        split="train", shuffle=True, **common_dataset_args
     )
     val_dataset = ERA5ForecastDataset(
-        split="val", shuffle_files=False, **common_dataset_args
+        split="val", shuffle=False, **common_dataset_args
     )
     test_dataset = ERA5ForecastDataset(
-        split="test", shuffle_files=False, **common_dataset_args
+        split="test", shuffle=False, **common_dataset_args
+    )
+
+    use_gpu = args.accelerator == "gpu" or (
+        args.accelerator == "auto" and torch.cuda.is_available()
     )
 
     def loader(dataset):
@@ -223,7 +255,7 @@ def run_training(args) -> None:
             dataset,
             batch_size=args.batch_size,
             num_workers=args.num_workers,
-            pin_memory=args.accelerator != "cpu",
+            pin_memory=use_gpu,
         )
 
     network = _build_model(args, img_size)
@@ -262,23 +294,27 @@ def run_training(args) -> None:
                 self.parameters(), lr=args.lr, weight_decay=args.weight_decay
             )
 
-    pl.seed_everything(args.seed, workers=True)
     output_dir = args.output_dir.expanduser().resolve()
+    # --limit-val-batches 0 disables validation, and nothing can then monitor
+    # "val/mse"; keep the last epoch instead of the best one in that case.
+    validates = args.limit_val_batches != 0
     checkpoint = ModelCheckpoint(
         dirpath=output_dir / "checkpoints",
-        monitor="val/mse",
+        monitor="val/mse" if validates else None,
         mode="min",
         filename="epoch-{epoch:03d}",
         auto_insert_metric_name=False,
         save_top_k=1,
     )
     callbacks = [checkpoint]
-    if args.patience > 0:
+    if validates and args.patience > 0:
         callbacks.append(EarlyStopping(monitor="val/mse", patience=args.patience))
 
     trainer_kwargs = {}
-    if args.limit_train_batches is not None:
-        trainer_kwargs["limit_train_batches"] = args.limit_train_batches
+    for name in ("limit_train_batches", "limit_val_batches", "limit_test_batches"):
+        value = getattr(args, name)
+        if value is not None:
+            trainer_kwargs[name] = value
     trainer = pl.Trainer(
         accelerator=args.accelerator,
         devices=args.devices,
@@ -288,8 +324,17 @@ def run_training(args) -> None:
         **trainer_kwargs,
     )
     module = ForecastModule(network)
-    trainer.fit(module, train_dataloaders=loader(train_dataset), val_dataloaders=loader(val_dataset))
-    trainer.test(module, dataloaders=loader(test_dataset), ckpt_path="best")
+    trainer.fit(
+        module,
+        train_dataloaders=loader(train_dataset),
+        val_dataloaders=loader(val_dataset),
+    )
+    # ``best`` raises outright when no checkpoint was written, for example
+    # with --max-epochs 0; fall back to the in-memory weights instead.
+    best_checkpoint = checkpoint.best_model_path or None
+    trainer.test(
+        module, dataloaders=loader(test_dataset), ckpt_path=best_checkpoint
+    )
 
 
 def parse_args():
@@ -319,6 +364,8 @@ def parse_args():
     parser.add_argument("--accelerator", choices=["auto", "cpu", "gpu"], default="auto")
     parser.add_argument("--devices", type=int, default=1)
     parser.add_argument("--limit-train-batches", type=int)
+    parser.add_argument("--limit-val-batches", type=int)
+    parser.add_argument("--limit-test-batches", type=int)
     parser.add_argument("--output-dir", type=Path, default=Path("outputs/sparse_reslim_forecasting"))
     parser.add_argument("--seed", type=int, default=0)
     return parser.parse_args()
