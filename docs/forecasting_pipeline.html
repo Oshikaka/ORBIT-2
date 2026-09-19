@@ -1,0 +1,818 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ORBIT-2 Forecasting Pipeline · Sparse-Reslim 预测流程</title>
+<style>
+:root{
+  color-scheme:light;
+  --plane:#f9f9f7; --surface:#fcfcfb; --surface-2:#f4f3f0;
+  --ink:#0b0b0b; --ink-2:#52514e; --muted:#898781;
+  --grid:#e1e0d9; --axis:#c3c2b7; --border:rgba(11,11,11,0.10);
+  --s1:#2a78d6; --s2:#eb6834;
+  --s1-wash:rgba(42,120,214,0.10); --s2-wash:rgba(235,104,52,0.10);
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --plane:#0d0d0d; --surface:#1a1a19; --surface-2:#222221;
+  --ink:#ffffff; --ink-2:#c3c2b7; --muted:#898781;
+  --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,0.10);
+  --s1:#3987e5; --s2:#d95926;
+  --s1-wash:rgba(57,135,229,0.16); --s2-wash:rgba(217,89,38,0.16);
+}
+@media (prefers-color-scheme:dark){
+  :root:where(:not([data-theme="light"])){
+    color-scheme:dark;
+    --plane:#0d0d0d; --surface:#1a1a19; --surface-2:#222221;
+    --ink:#ffffff; --ink-2:#c3c2b7; --muted:#898781;
+    --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,0.10);
+    --s1:#3987e5; --s2:#d95926;
+    --s1-wash:rgba(57,135,229,0.16); --s2-wash:rgba(217,89,38,0.16);
+  }
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--plane); color:var(--ink);
+  font-family:system-ui,-apple-system,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  font-size:15px; line-height:1.75; -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1040px; margin:0 auto; padding:56px 24px 120px}
+code,.mono{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace}
+
+header.page{border-bottom:1px solid var(--border); padding-bottom:28px; margin-bottom:8px}
+.eyebrow{font-size:12px; letter-spacing:.14em; text-transform:uppercase; color:var(--muted); margin:0 0 10px}
+h1{font-size:30px; line-height:1.3; margin:0 0 12px; letter-spacing:-.01em}
+.lede{color:var(--ink-2); font-size:16px; margin:0; max-width:74ch}
+.theme-btn{
+  position:fixed; top:16px; right:16px; z-index:20;
+  background:var(--surface); color:var(--ink-2); border:1px solid var(--border);
+  border-radius:8px; padding:6px 12px; font-size:12px; cursor:pointer;
+  font-family:inherit;
+}
+.theme-btn:hover{color:var(--ink)}
+
+h2{font-size:21px; margin:56px 0 6px; letter-spacing:-.01em; scroll-margin-top:24px}
+h2 .num{color:var(--muted); font-weight:600; margin-right:10px; font-size:15px}
+h3{font-size:16px; margin:32px 0 8px}
+p{margin:0 0 14px; max-width:78ch; color:var(--ink-2)}
+p strong,li strong,td strong{color:var(--ink); font-weight:600}
+ul{margin:0 0 16px; padding-left:22px; color:var(--ink-2); max-width:78ch}
+li{margin:5px 0}
+a{color:var(--s1)}
+.sub{color:var(--muted); font-size:13px; margin:0 0 20px; max-width:78ch}
+
+.card{background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:22px 24px; margin:20px 0}
+
+.shape{
+  display:inline-block; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:12.5px; background:var(--surface-2); border:1px solid var(--border);
+  border-radius:6px; padding:2px 7px; white-space:nowrap; color:var(--ink);
+}
+.shape.out{background:var(--s1-wash); border-color:transparent}
+.shape.sparse{background:var(--s2-wash); border-color:transparent}
+.arrow{color:var(--muted); margin:0 7px; font-size:13px}
+
+/* ---- pipeline stages ---- */
+.flow{margin:24px 0 8px}
+.stage{
+  position:relative; display:grid; grid-template-columns:38px 1fr;
+  gap:16px; background:var(--surface); border:1px solid var(--border);
+  border-radius:12px; padding:16px 18px;
+}
+.stage + .connector{height:16px; margin-left:19px; border-left:2px solid var(--grid)}
+.stage.hi{border-color:var(--s2); box-shadow:0 0 0 3px var(--s2-wash)}
+.badge{
+  width:38px; height:38px; border-radius:9px; background:var(--surface-2);
+  color:var(--ink-2); display:flex; align-items:center; justify-content:center;
+  font-size:13px; font-weight:650; font-variant-numeric:tabular-nums;
+}
+.stage.hi .badge{background:var(--s2); color:#fff}
+.stage .title{font-weight:650; color:var(--ink); margin:0 0 3px; font-size:15px}
+.stage .io{margin:8px 0 6px; line-height:2.2}
+.stage .io .lbl{font-size:12px; color:var(--muted); margin-right:6px}
+.stage .note{margin:4px 0 0; font-size:13.5px; color:var(--ink-2)}
+.stage .ref{margin:8px 0 0; font-size:12px; color:var(--muted)}
+.stage .ref code{font-size:12px}
+
+.group-label{
+  display:flex; align-items:center; gap:12px; margin:30px 0 14px;
+  font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--muted);
+}
+.group-label::after{content:""; flex:1; height:1px; background:var(--grid)}
+
+/* ---- tables ---- */
+table{border-collapse:collapse; width:100%; margin:18px 0; font-size:14px}
+th,td{text-align:left; padding:10px 12px; border-bottom:1px solid var(--grid); vertical-align:top; color:var(--ink-2)}
+th{color:var(--ink); font-weight:650; font-size:13px; border-bottom:1px solid var(--axis)}
+tbody tr:last-child td{border-bottom:none}
+td.num{font-variant-numeric:tabular-nums; text-align:right; white-space:nowrap}
+.tbl-wrap{background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:6px 18px; margin:20px 0; overflow-x:auto}
+
+/* ---- chart ---- */
+figure{margin:24px 0; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:22px 24px}
+figure .fig-title{font-weight:650; color:var(--ink); font-size:15px; margin:0 0 3px}
+figure .fig-sub{color:var(--muted); font-size:13px; margin:0 0 20px}
+figcaption{color:var(--muted); font-size:12.5px; margin-top:16px; border-top:1px solid var(--grid); padding-top:12px}
+.bars{display:grid; gap:18px}
+.bar-row{display:grid; grid-template-columns:186px 1fr; align-items:center; gap:14px}
+.bar-label{font-size:13.5px; color:var(--ink-2); text-align:right; line-height:1.4}
+.bar-track{position:relative; height:26px}
+.bar-fill{
+  height:26px; border-radius:0 4px 4px 0; background:var(--s1);
+  display:flex; align-items:center; justify-content:flex-end; padding-right:10px;
+  color:#fff; font-size:12.5px; font-variant-numeric:tabular-nums; font-weight:600;
+  transition:filter .12s;
+}
+.bar-row.alt .bar-fill{background:var(--s2)}
+.bar-track:hover .bar-fill{filter:brightness(1.08)}
+.bar-base{border-left:2px solid var(--axis); padding-left:0}
+.legend{display:flex; gap:18px; margin:0 0 18px; font-size:13px; color:var(--ink-2); align-items:center}
+.legend span{display:flex; align-items:center; gap:7px}
+.swatch{width:11px; height:11px; border-radius:3px; display:inline-block}
+
+.grid-viz{display:flex; gap:28px; flex-wrap:wrap; align-items:flex-start}
+.grid-viz .col{flex:1; min-width:250px}
+.grid-viz .col h4{margin:0 0 4px; font-size:13.5px; color:var(--ink)}
+.grid-viz .col p{margin:0 0 12px; font-size:12.5px; color:var(--muted)}
+
+pre{
+  background:var(--surface-2); border:1px solid var(--border); border-radius:10px;
+  padding:14px 16px; overflow-x:auto; font-size:12.5px; line-height:1.7; margin:14px 0;
+  color:var(--ink);
+}
+pre .c{color:var(--muted)}
+
+.callout{
+  border-left:3px solid var(--s2); background:var(--s2-wash);
+  border-radius:0 8px 8px 0; padding:14px 18px; margin:18px 0;
+}
+.callout p{margin:0; color:var(--ink-2)}
+.callout .k{font-weight:650; color:var(--ink)}
+
+.two-col{display:grid; grid-template-columns:1fr 1fr; gap:18px; margin:20px 0}
+@media (max-width:760px){
+  .two-col{grid-template-columns:1fr}
+  .bar-row{grid-template-columns:1fr}
+  .bar-label{text-align:left}
+}
+.mini{background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:18px 20px}
+.mini h4{margin:0 0 3px; font-size:15px; color:var(--ink)}
+.mini .tag{font-size:12px; color:var(--muted); margin:0 0 14px}
+.mini ol{margin:0; padding-left:20px; font-size:13px; color:var(--ink-2)}
+.mini ol li{margin:7px 0}
+</style>
+</head>
+<body>
+<button class="theme-btn" id="themeBtn">切换深浅色</button>
+<div class="wrap">
+
+<header class="page">
+  <p class="eyebrow">ORBIT-2 · examples/sparse_reslim_forecasting</p>
+  <h1>Forecasting 流水线：Sparse-Reslim 逐环节拆解</h1>
+  <p class="lede">
+    这份文档把 ORBIT-2 里的天气<strong>预报</strong>示例从磁盘上的 NPZ 文件一路讲到输出的预报场，
+    标出每一步的输入、输出和张量形状；最后用一节说明它和仓库主线的<strong>降尺度</strong>有什么不同、各自怎么跑。
+    文中所有形状都是在 Frontier 的 <code>orbit</code> 环境里实际跑出来的，不是推算的。
+  </p>
+</header>
+
+<h2><span class="num">0</span>它在仓库里的位置</h2>
+<p>
+  ORBIT-2 主线做的是<strong>降尺度</strong>（把粗网格气候场变细），代码在 <code>examples/intermediate_downscaling.py</code>
+  加 <code>src/climate_learn/models/hub/res_slimvit.py</code>。
+  <code>examples/sparse_reslim_forecasting/</code> 是另一条独立的线：确定性<strong>预报</strong>——网格分辨率不变，把时间往前推。
+</p>
+<p>
+  这个目录是有意做小的，只有两个文件：<code>model.py</code>（模型，只依赖 PyTorch）和 <code>train.py</code>（数据集 + 训练循环）。
+  它不走 FSDP、不走 TILES、不读 YAML 配置，默认单卡跑，目的是让人一眼看懂方法本身。
+  扩散生成（EDM）和论文规模的配置不在这里，在
+  <a href="https://github.com/janet-sw/Sparse-Reslim">完整的 Sparse-Reslim 仓库</a>。
+</p>
+
+<h2><span class="num">1</span>记号约定</h2>
+<div class="tbl-wrap">
+<table>
+  <thead><tr><th style="width:90px">符号</th><th style="width:200px">含义</th><th>来源 / 默认值</th></tr></thead>
+  <tbody>
+    <tr><td><code>B</code></td><td>批大小</td><td><code>--batch-size</code>，默认 16</td></tr>
+    <tr><td><code>T</code></td><td>输入的历史帧数</td><td><code>--history</code>，默认 1</td></tr>
+    <tr><td><code>V</code></td><td>输入变量数</td><td><code>--input-vars</code> 的长度，默认 1</td></tr>
+    <tr><td><code>V<sub>out</sub></code></td><td>输出变量数</td><td><code>--output-vars</code> 的长度，必须是输入变量的子集</td></tr>
+    <tr><td><code>H, W</code></td><td>纬向 / 经向格点数</td><td>从 <code>train/</code> 第一个 NPZ 自动读出，不需要填</td></tr>
+    <tr><td><code>p</code></td><td>patch 边长</td><td><code>--patch-size</code>，默认 2；<code>H</code> 和 <code>W</code> 必须能被它整除</td></tr>
+    <tr><td><code>L</code></td><td>token 数 = <code>(H/p) × (W/p)</code></td><td>由上面几项推出</td></tr>
+    <tr><td><code>D</code></td><td>嵌入维度</td><td><code>--embed-dim</code>，默认 128</td></tr>
+    <tr><td><code>r</code></td><td>稀疏层保留的 token 比例</td><td><code>--keep-ratio</code>，默认 0.25</td></tr>
+  </tbody>
+</table>
+</div>
+<p class="sub">
+  下文每一步都给两组形状：左边是通用公式，右边括号里是一个实测样例——
+  ERA5 1.40625°（<code>H=128, W=256</code>）、2 个变量、其余全用默认值、<code>B=2</code>。
+</p>
+
+<h2><span class="num">2</span>数据侧：从 NPZ 到一个 batch</h2>
+<p>
+  训练脚本读的是 ORBIT 一贯的按 split 分目录的 NPZ 布局。<strong>预报只需要一个目录</strong>，
+  因为输入和标签在同一张网格上，区别只在时间：
+</p>
+<pre>ERA5_DIR/
+├── normalize_mean.npz   <span class="c"># 每个变量一个标量均值</span>
+├── normalize_std.npz    <span class="c"># 每个变量一个标量标准差</span>
+├── train/*.npz          <span class="c"># 每个文件一段时间，键是变量名</span>
+├── val/*.npz
+└── test/*.npz</pre>
+
+<div class="flow">
+
+<div class="stage">
+  <div class="badge">D1</div>
+  <div>
+    <p class="title">读盘并统一布局</p>
+    <div class="io">
+      <span class="lbl">输入</span><span class="shape">NPZ[var] = [T<sub>total</sub>, H, W]</span>
+      <span class="lbl" style="margin-left:6px">或</span><span class="shape">[T<sub>total</sub>, 1, H, W]</span>
+      <span class="arrow">→</span>
+      <span class="lbl">输出</span><span class="shape out">[T<sub>total</sub>, H, W]</span>
+    </div>
+    <p class="note">多出来的长度为 1 的那一维会被压掉；其他维数直接报错，不猜。</p>
+    <p class="ref"><code>train.py · _as_time_lat_lon()</code></p>
+  </div>
+</div>
+<div class="connector"></div>
+
+<div class="stage">
+  <div class="badge">D2</div>
+  <div>
+    <p class="title">逐变量标准化</p>
+    <div class="io">
+      <span class="lbl">输入</span><span class="shape">[T<sub>total</sub>, H, W]</span>
+      <span class="arrow">→</span>
+      <span class="lbl">输出</span><span class="shape out">[T<sub>total</sub>, H, W]</span>
+    </div>
+    <p class="note">
+      <code>(x − mean[var]) / std[var]</code>，每个变量一个标量。标准差为 0 会直接抛错。
+      注意<strong>标签也被同一组常数标准化了</strong>，所以后面的 loss 是归一化空间里的数，不是物理单位。
+    </p>
+    <p class="ref"><code>train.py · _load_normalization()</code> / <code>ERA5ForecastDataset.__iter__()</code></p>
+  </div>
+</div>
+<div class="connector"></div>
+
+<div class="stage">
+  <div class="badge">D3</div>
+  <div>
+    <p class="title">切出一个「输入历史 → 未来标签」样本对</p>
+    <div class="io">
+      <span class="lbl">输出 · 输入端</span><span class="shape out">[T, V, H, W]</span>
+      <span class="lbl" style="margin-left:14px">输出 · 标签端</span><span class="shape out">[V<sub>out</sub>, H, W]</span>
+    </div>
+    <p class="note">
+      时间索引规则：合法起点是 <code>t ∈ [(T−1)·window, T<sub>total</sub> − pred_range)</code>。
+      输入取 <code>t, t−window, …, t−(T−1)·window</code>（按时间正序排好），标签取单帧 <code>t + pred_range</code>。
+      这是<strong>直接预报</strong>——一次跳到目标时刻，不做自回归滚动。
+    </p>
+    <p class="ref"><code>train.py · ERA5ForecastDataset</code>（<code>IterableDataset</code>，多 worker 时按文件切分）</p>
+  </div>
+</div>
+<div class="connector"></div>
+
+<div class="stage">
+  <div class="badge">D4</div>
+  <div>
+    <p class="title">DataLoader 组 batch</p>
+    <div class="io">
+      <span class="lbl">输出 · 输入端</span><span class="shape out">[B, T, V, H, W]</span>
+      <span class="lbl" style="margin-left:6px">实测</span><span class="shape">(2, 1, 2, 128, 256)</span>
+    </div>
+    <div class="io">
+      <span class="lbl">输出 · 标签端</span><span class="shape out">[B, V<sub>out</sub>, H, W]</span>
+      <span class="lbl" style="margin-left:6px">实测</span><span class="shape">(2, 2, 128, 256)</span>
+    </div>
+    <p class="note">这就是喂给模型的东西。模型也接受省掉时间维的 <code>[B, V, H, W]</code>，内部会自动补上 <code>T=1</code>。</p>
+  </div>
+</div>
+
+</div>
+
+<h2><span class="num">3</span>模型侧：14 步形状流</h2>
+<p class="sub">
+  橙色标出的三步是 Sparse-Reslim 的核心，其余部分是一个常规的变量聚合 ViT。
+</p>
+
+<div class="group-label">编码：把气象场变成 token</div>
+<div class="flow">
+
+<div class="stage">
+  <div class="badge">1</div>
+  <div>
+    <p class="title">输入</p>
+    <div class="io">
+      <span class="shape">[B, T, V, H, W]</span>
+      <span class="lbl" style="margin-left:10px">实测</span><span class="shape">(2, 1, 2, 128, 256)</span>
+    </div>
+    <p class="note">模型会校验 <code>T</code>、<code>V</code>、<code>(H,W)</code> 三项是否和构造时一致，对不上直接报错。</p>
+  </div>
+</div>
+<div class="connector"></div>
+
+<div class="stage">
+  <div class="badge">2</div>
+  <div>
+    <p class="title">逐变量 patch 嵌入</p>
+    <div class="io">
+      <span class="lbl">输入</span><span class="shape">[B, T, H, W]</span><span class="lbl" style="margin-left:4px">（每个变量一份）</span>
+      <span class="arrow">→</span>
+      <span class="shape out">[B, D, H/p, W/p]</span>
+      <span class="arrow">→</span>
+      <span class="shape out">[B, L, D]</span>
+    </div>
+    <p class="note">
+      每个变量有<strong>自己独立的</strong> <code>Conv2d(T → D, kernel=stride=p)</code>：卷积核等于步长，等价于不重叠地切块再线性投影。
+      历史帧放在通道维里，所以一次卷积就把时间吃掉了。展平后 <code>L = (H/p)·(W/p)</code>。
+    </p>
+    <p class="ref">实测：<code>(2,1,128,256) → (2,128,64,128) → (2,8192,128)</code>，<code>L = 8192</code></p>
+  </div>
+</div>
+<div class="connector"></div>
+
+<div class="stage">
+  <div class="badge">3</div>
+  <div>
+    <p class="title">堆叠变量 + 变量身份嵌入</p>
+    <div class="io">
+      <span class="lbl">输入</span><span class="shape">V × [B, L, D]</span>
+      <span class="arrow">→</span>
+      <span class="shape out">[B, L, V, D]</span>
+      <span class="lbl" style="margin-left:8px">加上</span><span class="shape">variable_embed [1, 1, V, D]</span>
+    </div>
+    <p class="note">同一个格点上的各个变量被排在一起；可学习的 <code>variable_embed</code> 告诉模型「这一条是哪个变量」。</p>
+    <p class="ref">实测：<code>(2, 8192, 2, 128)</code></p>
+  </div>
+</div>
+<div class="connector"></div>
+
+<div class="stage">
+  <div class="badge">4</div>
+  <div>
+    <p class="title">变量聚合：把 V 个变量压成 1 个 token</p>
+    <div class="io">
+      <span class="lbl">输入</span><span class="shape">[B·L, V, D]</span>
+      <span class="lbl" style="margin-left:6px">query</span><span class="shape">[B·L, 1, D]</span>
+      <span class="arrow">→</span>
+      <span class="shape out">[B, L, D]</span>
+    </div>
+    <p class="note">
+      一个可学习的 <code>variable_query</code> 对该格点的 V 个变量做<strong>交叉注意力</strong>，得到一个融合 token。
+      关键点：注意力只在变量维上做（长度 V，很短），<code>B·L</code> 全被当成 batch。
+      好处是变量数可以变，<code>L</code> 不随变量数增长。
+    </p>
+    <p class="ref">实测：<code>(16384, 2, 128) → (2, 8192, 128)</code></p>
+  </div>
+</div>
+<div class="connector"></div>
+
+<div class="stage">
+  <div class="badge">5</div>
+  <div>
+    <p class="title">加位置嵌入</p>
+    <div class="io">
+      <span class="shape">[B, L, D]</span><span class="lbl" style="margin-left:6px">+</span><span class="shape">position_embed [1, L, D]</span>
+      <span class="arrow">→</span>
+      <span class="shape out">[B, L, D]</span>
+    </div>
+    <p class="note">
+      可学习参数，形状在建模型时就按 <code>L</code> 定死了——<strong>换网格尺寸就得重新训</strong>，
+      不像降尺度那边会在线插值（见第 6 节）。
+    </p>
+  </div>
+</div>
+
+</div>
+
+<div class="group-label">路由：dense → sparse → dense</div>
+<div class="flow">
+
+<div class="stage">
+  <div class="badge">6</div>
+  <div>
+    <p class="title">前段稠密块 ×<code>num_dense_early</code></p>
+    <div class="io">
+      <span class="shape">[B, L, D]</span><span class="arrow">→</span><span class="shape out">[B, L, D]</span>
+    </div>
+    <p class="note">标准 pre-norm Transformer 编码层（GELU，<code>mlp_ratio=4</code>）。默认只有 1 层，让全部 token 先互相看一眼。</p>
+  </div>
+</div>
+<div class="connector"></div>
+
+<div class="stage hi">
+  <div class="badge">7</div>
+  <div>
+    <p class="title">采样 token 子集（无参数路由）</p>
+    <div class="io">
+      <span class="lbl">输入</span><span class="shape">[B, L, D]</span>
+      <span class="arrow">→</span>
+      <span class="lbl">索引</span><span class="shape sparse">[B, L·r]</span>
+      <span class="arrow">→</span>
+      <span class="lbl">gather</span><span class="shape sparse">[B, L·r, D]</span>
+    </div>
+    <p class="note">
+      做法是 <code>torch.rand(B, L).topk(L·r)</code>——本质是<strong>每个样本独立随机抽一批空间位置</strong>，
+      抽完按索引排序以保持原有顺序。没有任何可学习参数，也不看 token 内容。
+      保留数是 <code>max(1, int(L · keep_ratio))</code>。
+    </p>
+    <p class="ref">实测：<code>8192 → 2048</code>（25%）</p>
+  </div>
+</div>
+<div class="connector"></div>
+
+<div class="stage hi">
+  <div class="badge">8</div>
+  <div>
+    <p class="title">中段稀疏块 ×<code>num_sparse_middle</code></p>
+    <div class="io">
+      <span class="shape sparse">[B, L·r, D]</span><span class="arrow">→</span><span class="shape sparse">[B, L·r, D]</span>
+    </div>
+    <p class="note">
+      默认 4 层，只在这 25% 的 token 上跑。序列短了 4 倍，自注意力这一项就省了 16 倍。
+    </p>
+  </div>
+</div>
+<div class="connector"></div>
+
+<div class="stage hi">
+  <div class="badge">9</div>
+  <div>
+    <p class="title">散射回稠密网格（残差形式）</p>
+    <div class="io">
+      <span class="lbl">delta</span><span class="shape sparse">[B, L, D]</span>
+      <span class="lbl" style="margin-left:6px">= scatter(稀疏输出 − 稀疏输入)</span>
+      <span class="arrow">→</span>
+      <span class="shape out">[B, L, D]</span>
+    </div>
+    <p class="note">
+      写回的是<strong>增量</strong>而不是替换值：被跳过的 token 拿到 0，因此原样保留在恒等路径上。
+      这正是名字里 "Reslim" 的来历——稀疏块只负责修正，不负责重建。
+    </p>
+  </div>
+</div>
+<div class="connector"></div>
+
+<div class="stage">
+  <div class="badge">10</div>
+  <div>
+    <p class="title">后段稠密块 ×<code>num_dense_late</code> + LayerNorm</p>
+    <div class="io">
+      <span class="shape">[B, L, D]</span><span class="arrow">→</span><span class="shape out">[B, L, D]</span>
+    </div>
+    <p class="note">
+      <code>num_dense_late = depth − num_dense_early − num_sparse_middle</code>，默认 <code>6 − 1 − 4 = 1</code>。
+      这一层让被修正过的 token 和被跳过的 token 重新混合，避免残留拼接痕迹。
+    </p>
+  </div>
+</div>
+
+</div>
+
+<div class="group-label">解码：token 变回气象场</div>
+<div class="flow">
+
+<div class="stage">
+  <div class="badge">11</div>
+  <div>
+    <p class="title">解码头</p>
+    <div class="io">
+      <span class="shape">[B, L, D]</span><span class="arrow">→</span><span class="shape out">[B, L, V<sub>out</sub>·p²]</span>
+    </div>
+    <p class="note">单层 <code>Linear</code>，把每个 token 展开成它那一小块 patch 上所有输出变量的像素。</p>
+    <p class="ref">实测：<code>(2, 8192, 8)</code>，即 <code>2 变量 × 2 × 2</code></p>
+  </div>
+</div>
+<div class="connector"></div>
+
+<div class="stage">
+  <div class="badge">12</div>
+  <div>
+    <p class="title">Unpatchify：拼回二维场</p>
+    <div class="io">
+      <span class="shape">[B, L, V<sub>out</sub>·p²]</span><span class="arrow">→</span><span class="shape out">[B, V<sub>out</sub>, H, W]</span>
+    </div>
+    <p class="note">
+      reshape 成 <code>[B, H/p, W/p, V<sub>out</sub>, p, p]</code>，换轴再合并。
+      <strong>分辨率进出相同</strong>——这是预报和降尺度最直观的区别。
+    </p>
+    <p class="ref">实测：<code>(2, 8192, 8) → (2, 2, 128, 256)</code></p>
+  </div>
+</div>
+<div class="connector"></div>
+
+<div class="stage">
+  <div class="badge">13</div>
+  <div>
+    <p class="title">并行卷积残差支路</p>
+    <div class="io">
+      <span class="lbl">输入</span><span class="shape">x[:, −1, out_idx] = [B, V<sub>out</sub>, H, W]</span>
+      <span class="arrow">→</span>
+      <span class="shape out">[B, V<sub>out</sub>, H, W]</span>
+    </div>
+    <p class="note">
+      取<strong>最后一帧</strong>历史场里的输出变量，过 <code>Conv3×3 → GELU → Conv3×3</code>（隐藏宽度 <code>max(16, D/4)</code>）。
+      这条支路只做局部持续性修正，和 Transformer 支路并行，不共享权重。
+      也正因为它要从输入里按名字取输出变量，<strong>输出变量必须是输入变量的子集</strong>，否则构造模型时就报错。
+    </p>
+  </div>
+</div>
+<div class="connector"></div>
+
+<div class="stage">
+  <div class="badge">14</div>
+  <div>
+    <p class="title">相加得到预报</p>
+    <div class="io">
+      <span class="shape">第 12 步</span><span class="lbl" style="margin:0 6px">+</span><span class="shape">第 13 步</span>
+      <span class="arrow">→</span>
+      <span class="shape out">[B, V<sub>out</sub>, H, W]</span>
+      <span class="lbl" style="margin-left:8px">实测</span><span class="shape">(2, 2, 128, 256)</span>
+    </div>
+    <p class="note">和标签形状完全对齐，直接算 MSE。</p>
+  </div>
+</div>
+
+</div>
+
+<h2><span class="num">4</span>稀疏路由省在哪里</h2>
+<p>
+  自注意力的开销随序列长度<strong>平方</strong>增长，所以把中间几层的 token 砍到四分之一，省下的远不止四分之一。
+  下面按默认配置（<code>L=8192</code>，<code>depth=6</code>，<code>1 dense → 4 sparse → 1 dense</code>，<code>r=0.25</code>）把注意力矩阵的规模算出来。
+</p>
+
+<figure>
+  <p class="fig-title">注意力矩阵规模：全稠密 vs. 1-4-1 稀疏路由</p>
+  <p class="fig-sub">按 Σ L<sub>block</sub>² 计，单位为 10⁶。L = 8192，稀疏层 L·r = 2048。</p>
+  <div class="legend">
+    <span><i class="swatch" style="background:var(--s1)"></i>全部 6 层稠密</span>
+    <span><i class="swatch" style="background:var(--s2)"></i>1-4-1 稀疏路由（本示例默认）</span>
+  </div>
+  <div class="bars">
+    <div class="bar-row">
+      <div class="bar-label">6 层全稠密<br><span style="color:var(--muted);font-size:12px">6 × 8192²</span></div>
+      <div class="bar-track bar-base" title="6 层全稠密：402.7M">
+        <div class="bar-fill" style="width:100%">402.7M</div>
+      </div>
+    </div>
+    <div class="bar-row alt">
+      <div class="bar-label">1-4-1 稀疏路由<br><span style="color:var(--muted);font-size:12px">2 × 8192² + 4 × 2048²</span></div>
+      <div class="bar-track bar-base" title="1-4-1 稀疏路由：151.0M，为全稠密的 37.5%">
+        <div class="bar-fill" style="width:37.5%">151.0M</div>
+      </div>
+    </div>
+  </div>
+  <figcaption>
+    稀疏路由把注意力矩阵压到全稠密的 <strong>37.5%</strong>。
+    注意这只是注意力那一项；MLP 和投影层是<strong>线性</strong>于 token 数的，同样这组参数下它们降到 50.0%
+    （<code>2×8192 + 4×2048</code> 对 <code>6×8192</code>）。所以端到端的实际加速落在这两个数之间，取决于 <code>D</code> 和 <code>mlp_ratio</code>。
+  </figcaption>
+</figure>
+
+<figure>
+  <p class="fig-title">中段稀疏块看到的空间位置</p>
+  <p class="fig-sub">示意图：每格是一个 patch token，深色为被送入稀疏块的 25%。每个样本独立重新抽样。</p>
+  <div class="grid-viz">
+    <div class="col">
+      <h4>第 6 步之后 · 稠密</h4>
+      <p>全部 L 个 token 都参与</p>
+      <div id="gridDense"></div>
+    </div>
+    <div class="col">
+      <h4>第 7–8 步 · 稀疏</h4>
+      <p>随机保留 L·r 个位置</p>
+      <div id="gridSparse"></div>
+    </div>
+  </div>
+  <figcaption>
+    抽样是<strong>纯随机且无参数</strong>的，不看 token 的内容。由于第 9 步写回的是增量、被跳过的 token 走恒等路径，
+    随机丢弃不会造成信息断层。
+  </figcaption>
+</figure>
+
+<div class="callout">
+  <p>
+    <span class="k">一个需要知道的性质：</span>这段路由代码没有区分训练和推理——<code>torch.rand</code> 在 <code>model.eval()</code> 下照样生效。
+    也就是说同一份输入跑两次，结果会略有不同。想要确定性输出，需要固定随机种子，或者自行改成
+    <code>eval</code> 时走全稠密路径（把 <code>keep_ratio</code> 设成 1.0 即可绕过采样）。
+  </p>
+</div>
+
+<h2><span class="num">5</span>训练回路</h2>
+<p>
+  模型外面包了一层很薄的 <code>pl.LightningModule</code>，没有自定义调度或分布式逻辑：
+</p>
+<div class="tbl-wrap">
+<table>
+  <thead><tr><th style="width:150px">环节</th><th>内容</th></tr></thead>
+  <tbody>
+    <tr><td>损失</td><td><code>F.mse_loss(forecast, target)</code>，train / val / test 三个阶段共用同一个函数，记为 <code>{stage}/mse</code>。<strong>是归一化空间里的 MSE</strong>，不是 K 或 mm。</td></tr>
+    <tr><td>优化器</td><td><code>AdamW</code>，<code>lr=5e-4</code>、<code>weight_decay=1e-5</code>，无学习率调度</td></tr>
+    <tr><td>检查点</td><td><code>ModelCheckpoint</code> 监控 <code>val/mse</code>，只留最好的一个，存到 <code>&lt;output-dir&gt;/checkpoints/</code></td></tr>
+    <tr><td>早停</td><td><code>EarlyStopping</code>，<code>--patience</code> 默认 5；设成 0 可关掉</td></tr>
+    <tr><td>设备</td><td><code>--accelerator</code> / <code>--devices</code>，默认 <code>auto</code> + 1 张卡</td></tr>
+    <tr><td>收尾</td><td><code>trainer.test(..., ckpt_path="best")</code>——训完自动用最好的检查点在 test split 上跑一遍</td></tr>
+  </tbody>
+</table>
+</div>
+<p>
+  数据集是 <code>IterableDataset</code>，多 worker 时<strong>按文件切分</strong>（<code>files[worker.id::num_workers]</code>），
+  所以 <code>--num-workers</code> 最好不要超过该 split 的 NPZ 文件数，否则会有 worker 空转。
+</p>
+
+<h2><span class="num">6</span>Downscaling 与 Forecasting：差在哪，各自怎么用</h2>
+<p>
+  两者共用同一套直觉——逐变量 patch 嵌入、可学习 query 做变量聚合、Transformer 主干旁挂一条卷积残差支路——
+  但解决的是两个不同的问题，代码路径也是分开的。
+</p>
+
+<h3>任务本身的区别</h3>
+<p>
+  <strong>降尺度</strong>回答「同一时刻，这块粗网格细看是什么样」：输入输出时间相同、<strong>分辨率不同</strong>，
+  训练要成对的低分辨率 / 高分辨率数据。
+  <strong>预报</strong>回答「同一块网格，若干小时之后是什么样」：输入输出<strong>分辨率相同</strong>、时间不同，
+  训练只需要一条时间序列。
+</p>
+
+<div class="two-col">
+  <div class="mini">
+    <h4>Downscaling</h4>
+    <p class="tag">Res_Slim_ViT · 主线</p>
+    <ol>
+      <li>低分辨率场 <span class="shape">[B, T, C<sub>in</sub>, H, W]</span>，时间维展平进通道</li>
+      <li>逐变量 PatchEmbed + 变量聚合 <span class="shape">[B, L, D]</span></li>
+      <li>加插值后的 sincos 位置嵌入，<strong>再加一个空间分辨率嵌入</strong></li>
+      <li><code>depth</code> 层全稠密 Transformer（可选 TILES 分块）</li>
+      <li>解码头输出 <span class="shape">[B, L, C<sub>out</sub>·(mag·p)²]</span></li>
+      <li>Unpatchify <strong>带放大</strong> → <span class="shape out">[B, C<sub>out</sub>, H·mag, W·mag]</span></li>
+      <li>残差支路：PixelShuffle 上采样卷积，同样放大 mag 倍</li>
+      <li>两路相加（尺寸不齐时裁剪对齐）</li>
+    </ol>
+  </div>
+  <div class="mini">
+    <h4>Forecasting</h4>
+    <p class="tag">SparseReslim · 示例</p>
+    <ol>
+      <li>历史场 <span class="shape">[B, T, V, H, W]</span>，时间维进 conv 的通道</li>
+      <li>逐变量 Conv2d + 变量聚合 <span class="shape">[B, L, D]</span></li>
+      <li>加可学习位置嵌入（无分辨率嵌入）</li>
+      <li><strong>1 稠密 → 4 稀疏 → 1 稠密</strong>，中段只走 25% token</li>
+      <li>解码头输出 <span class="shape">[B, L, V<sub>out</sub>·p²]</span></li>
+      <li>Unpatchify <strong>不放大</strong> → <span class="shape out">[B, V<sub>out</sub>, H, W]</span></li>
+      <li>残差支路：同分辨率卷积，输入是最后一帧</li>
+      <li>两路相加（尺寸天然一致）</li>
+    </ol>
+  </div>
+</div>
+
+<h3>逐项对照</h3>
+<div class="tbl-wrap">
+<table>
+  <thead><tr><th style="width:130px">维度</th><th style="width:44%">Downscaling</th><th>Forecasting</th></tr></thead>
+  <tbody>
+    <tr><td><strong>空间形状</strong></td><td><code>(H, W) → (H·mag, W·mag)</code>，<code>superres_mag</code> 默认 4</td><td><code>(H, W) → (H, W)</code>，不变</td></tr>
+    <tr><td><strong>时间</strong></td><td>输入输出同一时刻</td><td><code>history</code> / <code>window</code> / <code>pred_range</code> 三个参数决定跨度</td></tr>
+    <tr><td><strong>数据目录</strong></td><td>两套：<code>low_res_dir</code> + <code>high_res_dir</code>，按文件配对，各自带 <code>lat.npy</code>/<code>lon.npy</code></td><td>一套：<code>ERA5_DIR</code> 下 <code>train/val/test</code> + 两个归一化文件</td></tr>
+    <tr><td><strong>模型代码</strong></td><td><code>src/climate_learn/models/hub/res_slimvit.py</code></td><td><code>examples/sparse_reslim_forecasting/model.py</code>（自包含）</td></tr>
+    <tr><td><strong>入口</strong></td><td><code>examples/intermediate_downscaling.py</code> + YAML 配置</td><td><code>examples/sparse_reslim_forecasting/train.py</code> + 命令行参数</td></tr>
+    <tr><td><strong>位置嵌入</strong></td><td>固定 sincos，<code>interpolate_pos_embed_on_the_fly</code> 按当前网格在线插值——换网格不必重训</td><td>可学习参数，形状写死在 <code>L</code> 上——换网格必须重训</td></tr>
+    <tr><td><strong>省算力手段</strong></td><td><strong>TILES</strong>：图像切成 <code>div×div</code> 个带 overlap 的瓦片，分到不同 GPU 上各算各的局部注意力，再拼回去</td><td><strong>稀疏 token 路由</strong>：中段只处理 <code>keep_ratio</code> 比例的 token，单卡内就能省</td></tr>
+    <tr><td><strong>并行</strong></td><td>FSDP + DDP + 张量/序列并行，手写训练循环，可扩到数万卡</td><td>单卡，PyTorch Lightning 默认循环</td></tr>
+    <tr><td><strong>静态变量</strong></td><td><strong>必需</strong>：残差支路强制取 <code>land_sea_mask</code>、<code>orography</code>、<code>lattitude</code>、<code>landcover</code> 四项，接在输出变量后面一起送进 PixelShuffle</td><td>不需要；唯一约束是输出变量必须包含在输入变量里</td></tr>
+    <tr><td><strong>损失</strong></td><td>可配（<code>bayesian_tv</code> 等），带 <code>var_weights</code> 逐变量加权，评估时反归一化</td><td>固定 MSE，归一化空间，无加权</td></tr>
+    <tr><td><strong>预训练权重</strong></td><td>HuggingFace <code>jychoi-hpc/ORBIT-2</code> 有 9.5M / 126M 的美国区域与全球检查点</td><td>无，从头训</td></tr>
+    <tr><td><strong>可视化</strong></td><td><code>examples/visualize.py</code> + <code>launch_visualize.sh</code></td><td>无现成脚本，只有 TensorBoard 日志</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>怎么跑 · Forecasting</h3>
+<p>先用合成张量跑一遍冒烟测试，不需要任何数据，同时验证前向和反向：</p>
+<pre>python examples/sparse_reslim_forecasting/train.py --smoke-test
+
+<span class="c"># Smoke test passed: forecast=(2, 1, 8, 16), sparse_tokens=8/32, loss=1.6330</span></pre>
+<p>有数据之后，在仓库根目录下：</p>
+<pre><span class="c"># 单变量、提前 6 个存储步长的默认设置</span>
+bash examples/sparse_reslim_forecasting/launch.sh /path/to/ERA5_DIR \
+  --max-epochs 30 --batch-size 16 --pred-range 6
+
+<span class="c"># 多变量：输出变量必须同时出现在输入里</span>
+bash examples/sparse_reslim_forecasting/launch.sh /path/to/ERA5_DIR \
+  --input-vars 2m_temperature 10m_u_component_of_wind \
+  --output-vars 2m_temperature 10m_u_component_of_wind
+
+<span class="c"># 先拿几个 batch 跑通端到端再说</span>
+python examples/sparse_reslim_forecasting/train.py /path/to/ERA5_DIR \
+  --limit-train-batches 4 --max-epochs 1 --accelerator cpu</pre>
+<p>常用开关：<code>--history</code>、<code>--window</code>、<code>--pred-range</code> 控时间；
+  <code>--keep-ratio</code>、<code>--num-dense-early</code>、<code>--num-sparse-middle</code> 控稀疏路由；
+  <code>--patch-size</code>、<code>--embed-dim</code>、<code>--depth</code>、<code>--num-heads</code> 控模型大小；
+  <code>--output-dir</code> 指定日志和检查点位置。</p>
+
+<h3>怎么跑 · Downscaling</h3>
+<p>降尺度不吃命令行参数，一切都在 YAML 里。Frontier 上：</p>
+<pre><span class="c"># 1. 选一个配置：interm_8m / interm_117m / interm_1b / interm_10b</span>
+<span class="c"># 2. 确认 fsdp × simple_ddp × tensor_par == 总 GPU 数</span>
+<span class="c"># 3. 改 launch_intermediate.sh 里的 -A 账号、conda 路径、配置文件名</span>
+cd examples/
+sbatch launch_intermediate.sh
+tail -f flash-{JOBID}.out
+
+<span class="c"># 训完出图</span>
+sbatch launch_visualize.sh</pre>
+<p>单机多卡（如 DGX）把配置里 <code>gpu_type</code> 设成 <code>nvidia</code>，然后：</p>
+<pre>mpirun -n [NUM_GPUS] python -u intermediate_downscaling.py [CONFIG_FILE] MPI</pre>
+<div class="callout">
+  <p>
+    <span class="k">几个已知的坑：</span>
+    所有 HuggingFace 权重的 <code>decoder_depth</code> 都是 4，配置里写 2 会形状不匹配、加载失败；
+    开 TILES 时瓦片尺寸必须能被 <code>patch_size</code> 整除，不行就调 <code>overlap</code>；
+    由于气候数据经纬 2:1 的长宽比，<strong>实际横向 overlap 是纵向的两倍</strong>；
+    美国区域权重和全球权重的 <code>pos_embed</code> 分别是 7200 和 16928 个 token，<strong>不能互换</strong>。
+  </p>
+</div>
+
+<h3>该用哪一个</h3>
+<ul>
+  <li><strong>手上是配好对的粗 / 细分辨率数据，想要更细的场</strong> → 降尺度。有预训练权重可以微调，规模也能拉到多节点。</li>
+  <li><strong>手上是单一网格上的时间序列，想往后推</strong> → 预报。从头训，单卡起步。</li>
+  <li><strong>想把预报做到论文规模</strong> → 这个示例只是入门；完整实现在
+    <a href="https://github.com/janet-sw/Sparse-Reslim">Sparse-Reslim 仓库</a>，含 EDM 扩散生成和分布式训练。</li>
+</ul>
+
+<h2><span class="num">7</span>速查表</h2>
+<div class="tbl-wrap">
+<table>
+  <thead><tr><th style="width:38px">#</th><th style="width:230px">环节</th><th style="width:33%">形状</th><th>实测样例</th></tr></thead>
+  <tbody>
+    <tr><td class="num">1</td><td>输入</td><td><code>[B, T, V, H, W]</code></td><td><code>(2, 1, 2, 128, 256)</code></td></tr>
+    <tr><td class="num">2</td><td>逐变量 patch 嵌入</td><td><code>[B, L, D]</code></td><td><code>(2, 8192, 128)</code></td></tr>
+    <tr><td class="num">3</td><td>堆叠变量 + 身份嵌入</td><td><code>[B, L, V, D]</code></td><td><code>(2, 8192, 2, 128)</code></td></tr>
+    <tr><td class="num">4</td><td>变量聚合（交叉注意力）</td><td><code>[B, L, D]</code></td><td><code>(2, 8192, 128)</code></td></tr>
+    <tr><td class="num">5</td><td>加位置嵌入</td><td><code>[B, L, D]</code></td><td><code>(2, 8192, 128)</code></td></tr>
+    <tr><td class="num">6</td><td>前段稠密块 ×1</td><td><code>[B, L, D]</code></td><td><code>(2, 8192, 128)</code></td></tr>
+    <tr><td class="num">7</td><td>采样 token 子集</td><td><code>[B, L·r, D]</code></td><td><code>(2, 2048, 128)</code></td></tr>
+    <tr><td class="num">8</td><td>中段稀疏块 ×4</td><td><code>[B, L·r, D]</code></td><td><code>(2, 2048, 128)</code></td></tr>
+    <tr><td class="num">9</td><td>散射回稠密网格</td><td><code>[B, L, D]</code></td><td><code>(2, 8192, 128)</code></td></tr>
+    <tr><td class="num">10</td><td>后段稠密块 ×1 + Norm</td><td><code>[B, L, D]</code></td><td><code>(2, 8192, 128)</code></td></tr>
+    <tr><td class="num">11</td><td>解码头</td><td><code>[B, L, V<sub>out</sub>·p²]</code></td><td><code>(2, 8192, 8)</code></td></tr>
+    <tr><td class="num">12</td><td>Unpatchify</td><td><code>[B, V<sub>out</sub>, H, W]</code></td><td><code>(2, 2, 128, 256)</code></td></tr>
+    <tr><td class="num">13</td><td>卷积残差支路</td><td><code>[B, V<sub>out</sub>, H, W]</code></td><td><code>(2, 2, 128, 256)</code></td></tr>
+    <tr><td class="num">14</td><td>预报 = 12 + 13</td><td><code>[B, V<sub>out</sub>, H, W]</code></td><td><code>(2, 2, 128, 256)</code></td></tr>
+  </tbody>
+</table>
+</div>
+<p class="sub">
+  样例配置：<code>B=2, T=1, V=V<sub>out</sub>=2, H=128, W=256, p=2, D=128, depth=6, r=0.25</code>，
+  模型参数量 2.31M。冒烟测试那组（<code>8×16</code> 网格、<code>D=32</code>）同样已验证：<code>32 个 token → 8 个</code>。
+</p>
+
+</div>
+
+<script>
+(function(){
+  var btn = document.getElementById('themeBtn');
+  var root = document.documentElement;
+  btn.addEventListener('click', function(){
+    root.setAttribute('data-theme',
+      root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+  });
+
+  // 固定种子，保证每次打开图样一致
+  function makeGrid(el, keep){
+    var cols = 16, rows = 8, n = cols * rows;
+    var seed = 20260919;
+    function rnd(){ seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; }
+    var order = [];
+    for (var i = 0; i < n; i++) order.push([rnd(), i]);
+    order.sort(function(a,b){ return b[0] - a[0]; });
+    var picked = {};
+    for (var j = 0; j < Math.round(n * keep); j++) picked[order[j][1]] = 1;
+
+    el.style.display = 'grid';
+    el.style.gridTemplateColumns = 'repeat(' + cols + ', 1fr)';
+    el.style.gap = '2px';
+    el.style.maxWidth = '300px';
+    for (var k = 0; k < n; k++){
+      var cell = document.createElement('div');
+      cell.style.aspectRatio = '1';
+      cell.style.borderRadius = '2px';
+      var on = keep >= 1 || picked[k];
+      cell.style.background = on ? 'var(--s2)' : 'var(--surface-2)';
+      cell.style.opacity = on ? '1' : '1';
+      if (!on) cell.style.boxShadow = 'inset 0 0 0 1px var(--grid)';
+      el.appendChild(cell);
+    }
+  }
+  makeGrid(document.getElementById('gridDense'), 1);
+  makeGrid(document.getElementById('gridSparse'), 0.25);
+})();
+</script>
+</body>
+</html>
