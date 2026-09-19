@@ -1,3 +1,27 @@
+# ============================================================================
+# ORBIT-2 GLOBAL precipitation inference config.
+#   checkpoint : global-finetune/global_126m_precipitation.ckpt (126.71M params)
+#   task       : global precipitation downscaling, 0.25 deg -> 0.0625 deg
+#   grid       : low-res 720 x 1440 -> high-res 2880 x 5760 (superres_mag = 4)
+#
+# Fixed three things that made this file unusable out of the box:
+#  * low_res_dir/high_res_dir pointed at
+#    kurihana/super-res-torchlight/superres/era5/0.25_deg_test, which is an
+#    empty directory tree on /lustre (no npz, no lat.npy) - repointed at the
+#    ERA5-IMERG-FUSED / IMERG pair named by the checkpoint's own yaml.
+#  * overlap was 2, but the checkpoint's pos_embed is (1, 16928, 1024).  With
+#    div=4 the tile is (720/4 + top+bottom) x (1440/4 + left+right); only
+#    overlap=4 gives 184 x 368 -> (184/2)*(368/2) = 16928 tokens.  overlap=2
+#    gives 16562 and silently bicubic-interpolates the positional embedding.
+#  * dict_in_variables['INFER'] listed 19 channels; the global checkpoint was
+#    fine-tuned on all 23 default_vars (its yaml's 'ERA5-IMERG-FUSED' entry).
+#
+# This is heavy: 126M params, 16 tiles, full 2880x5760 output. Run it on a
+# compute node rather than a login node:
+#   CONFIG=../configs/inference.yaml sbatch -A csc662 -q debug -t 00:20:00 \
+#       -N 1 examples/launch_visualize.sh
+# ============================================================================
+
 #-----------   TRAINER -------------
 trainer:
   max_epochs: 100
@@ -12,7 +36,7 @@ trainer:
 
 #----------  Parallelism -------------
 parallelism:
-  fsdp: 8
+  fsdp: 8   # unused by visualize.py: fsdp_size = world_size // tensor_par
   simple_ddp: 1
   tensor_par: 1
   seq_par: 1
@@ -21,7 +45,7 @@ parallelism:
 tiling:
   do_tiling: True
   div: 4
-  overlap: 2
+  overlap: 4   # 4 (not 2): only this makes the tile match pos_embed exactly
  
 # ---------------------------- MODEL -------------------------------------------
 model:
@@ -58,7 +82,7 @@ data:
 #    'ERA5_1': "/lustre/orion/world-shared/lrn036/jyc/frontier/ClimaX-v2/data/ERA5-1hr-superres/5.625_deg/",
 #    'ERA5_2': "/lustre/orion/world-shared/lrn036/jyc/frontier/ClimaX-v2/data/ERA5-1hr-superres/1.0_deg/",
 #    'PRISM': "/lustre/orion/world-shared/lrn036/jyc/frontier/ClimaX-v2/data/prism-superres/10.0_arcmin/",
-    'INFER': "/lustre/orion/lrn036/world-shared/kurihana/super-res-torchlight/superres/era5/0.25_deg_test",
+    'INFER': "/lustre/orion/lrn036/world-shared/data/superres/ERA5-IMERG-FUSED/0.25_deg",
   }
   high_res_dir: {
 ## (25/03/09) new variable names
@@ -72,7 +96,7 @@ data:
 #    'ERA5_1': "/lustre/orion/world-shared/lrn036/jyc/frontier/ClimaX-v2/data/ERA5-1hr-superres/1.40625_deg/",
 #    'ERA5_2': "/lustre/orion/world-shared/lrn036/jyc/frontier/ClimaX-v2/data/ERA5-1hr-superres/0.25_deg/",
 #    'PRISM': "/lustre/orion/world-shared/lrn036/jyc/frontier/ClimaX-v2/data/prism-superres/2.5_arcmin/",
-    'INFER': "/lustre/orion/lrn036/world-shared/kurihana/super-res-torchlight/superres/era5/0.25_deg_test",
+    'INFER': "/lustre/orion/lrn036/world-shared/data/superres/IMERG/0.0625_deg",
   }
 
   # input spatial resolution in km
@@ -191,16 +215,20 @@ data:
     ],
       'INFER': [
       "land_sea_mask",
-      "landcover",
       "orography",
       "lattitude",
+      "landcover",
       "2m_temperature",
+      "2m_temperature_max",
+      "2m_temperature_min",
       "temperature_200",
       "temperature_500",
       "temperature_850",
+      "10m_u_component_of_wind",
       "u_component_of_wind_200",
       "u_component_of_wind_500",
       "u_component_of_wind_850",
+      "10m_v_component_of_wind",
       "v_component_of_wind_200",
       "v_component_of_wind_500",
       "v_component_of_wind_850",

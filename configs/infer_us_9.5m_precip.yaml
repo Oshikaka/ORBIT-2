@@ -1,0 +1,186 @@
+# ============================================================================
+# ORBIT-2 inference / visualization config
+#   checkpoint : us-finetune/us_9.5m_precipitation.ckpt  (7.16M params)
+#   task       : US regional precipitation downscaling, 15 arcmin -> 3.75 arcmin
+#   grid       : low-res 120 x 240  ->  high-res 480 x 960   (superres_mag = 4)
+#
+# All model hyper-parameters below are copied verbatim from the checkpoint's own
+# training config (us_9.5m_precipitation.yaml shipped next to the .ckpt on
+# HuggingFace jychoi-hpc/ORBIT-2).  Only the data paths were re-pointed: the
+# original `ERA5-Daymet-1dy-superres` staging directory has been purged from
+# /lustre, the equivalent data now lives under
+# /lustre/orion/lrn036/world-shared/data/superres/.  The high-res target was
+# verified byte-identical (max|diff| == 0) against the single surviving file of
+# the original staging directory.
+#
+# ---------------------------------------------------------------------------
+# WHICH LOW-RES DATASET?  (measured, not guessed)
+# The original staging dir was a FUSION: its surviving 3.75 arcmin file holds
+# ERA5 statics/upper-air *plus* Daymet 2m_temperature_min/max and precipitation
+# (max|diff| vs daymet/3.75_arcmin == 0 for all three).  The 15 arcmin side was
+# built the same way, so the low-res input is ERA5 upper-air + Daymet surface
+# fields coarsened to 15 arcmin -- i.e. this is 4x super-resolution of Daymet
+# precipitation, with ERA5 as auxiliary predictors.  IterDataModule can only
+# read one root per side, so `low_res_var_dirs` below pulls the single
+# precipitation channel from daymet/15.0_arcmin and everything else from
+# era5-usa/15.0_arcmin.
+#
+# Mean over 59 days of the 2021 test split, this checkpoint, same 18 ERA5
+# channels, only the low-res precipitation channel swapped:
+#   precip channel from            vs daymet[t]              vs daymet[t-1]
+#   daymet/15.0_arcmin  (used)   PSNR 27.85 SSIM 0.839    PSNR 15.60 SSIM 0.637
+#   ERA5-QM-DAYMET/15.0          PSNR 13.97 SSIM 0.615    PSNR 16.44 SSIM 0.666
+#   era5-usa/15.0 (raw ERA5)     PSNR 13.43 SSIM 0.445    PSNR 15.74 SSIM 0.501
+# Only the Daymet-sourced channel is time-aligned with the target (offset 0
+# wins by 12 dB); feeding raw/bias-corrected ERA5 precip instead makes the
+# model reproduce the ERA5 accumulation window, which Daymet books one day
+# earlier -- that is where the apparent "1 day offset" comes from.
+# ---------------------------------------------------------------------------
+#
+# Run with (single GPU):
+#   ./examples/run_visualize_1gpu.sh configs/infer_us_9.5m_precip.yaml
+# ============================================================================
+
+#-----------   TRAINER -------------
+trainer:
+  max_epochs: 1
+  checkpoint:
+  pretrain: "/lustre/orion/csc662/proj-shared/xinru/models/orbit2/us-finetune/us_9.5m_precipitation.ckpt"
+  batch_size: 1
+  buffer_size: 10
+  num_workers: 1
+  data_type: float32
+  train_loss: "mse"
+
+#----------  Parallelism -------------
+# Single-GPU inference: no tensor parallelism, FSDP group degenerates to size 1.
+parallelism:
+  fsdp: 1
+  simple_ddp: 1
+  tensor_par: 1
+  seq_par: 1
+
+### Tiling
+# div=1 keeps the full 120x240 frame in one piece.  That makes the model's
+# num_patches exactly 60*120 = 7200, which matches the checkpoint's pos_embed
+# (1, 7200, 256) bit-for-bit, so no positional-embedding interpolation happens.
+tiling:
+  do_tiling: False
+  div: 1
+  overlap: 0
+
+# ---------------------------- MODEL -------------------------------------------
+model:
+  preset: res_slimvit
+  lr: 2e-3
+  weight_decay: 1e-5
+  beta_1: 0.9
+  beta_2: 0.99
+  warmup_epochs: 2
+  warmup_start_lr: 1e-7
+  eta_min: 1e-8
+  superres_mag: 4
+  cnn_ratio: 4
+  patch_size: 2
+  embed_dim: 256
+  depth: 6
+  decoder_depth: 4     # all HF ORBIT-2 weights use 4 (head is 5 Linear layers)
+  num_heads: 4
+  mlp_ratio: 4
+  drop_path: 0.1
+  drop_rate: 0.1
+
+# ---------------------------- DATA -------------------------------------------
+data:
+  # ERA5 over CONUS at 15 arcmin (0.25 deg), 120 x 240: supplies the 18
+  # auxiliary predictor channels (statics + upper-air).
+  low_res_dir: {
+    'ERA5_DAYMET': "/lustre/orion/lrn036/world-shared/data/superres/era5-usa/15.0_arcmin",
+  }
+  # ... and the precipitation channel, the one the model actually downscales,
+  # comes from Daymet coarsened to the same 120 x 240 grid.  Same split, same
+  # file names, so only the root differs.
+  low_res_var_dirs: {
+    'ERA5_DAYMET': {
+      'total_precipitation_24hr': "/lustre/orion/lrn036/world-shared/data/superres/daymet/15.0_arcmin",
+    },
+  }
+  # Daymet observations, 3.75 arcmin (0.0625 deg), 480 x 960
+  high_res_dir: {
+    'ERA5_DAYMET': "/lustre/orion/lrn036/world-shared/data/superres/daymet/3.75_arcmin",
+  }
+
+  # input spatial resolution in km (15 arcmin ~= 28 km)
+  spatial_resolution: {
+    'ERA5_DAYMET': 28,
+  }
+
+  # Order matters: this list defines the var -> token_embeds[i] mapping baked
+  # into the checkpoint (23 token embeddings, var_embed of shape (1, 23, 256)).
+  default_vars: [
+    "land_sea_mask",
+    "orography",
+    "lattitude",
+    "landcover",
+    "2m_temperature",
+    "2m_temperature_max",
+    "2m_temperature_min",
+    "temperature_200",
+    "temperature_500",
+    "temperature_850",
+    "10m_u_component_of_wind",
+    "u_component_of_wind_200",
+    "u_component_of_wind_500",
+    "u_component_of_wind_850",
+    "10m_v_component_of_wind",
+    "v_component_of_wind_200",
+    "v_component_of_wind_500",
+    "v_component_of_wind_850",
+    "specific_humidity_200",
+    "specific_humidity_500",
+    "specific_humidity_850",
+    "total_precipitation_24hr",
+    "volumetric_soil_water_layer_1",
+  ]
+
+  # 19 input channels, exactly the 'DAYMET_3' list of the checkpoint's own yaml
+  dict_in_variables: {
+    'ERA5_DAYMET': [
+      "land_sea_mask",
+      "landcover",
+      "orography",
+      "lattitude",
+      "2m_temperature",
+      "temperature_200",
+      "temperature_500",
+      "temperature_850",
+      "u_component_of_wind_200",
+      "u_component_of_wind_500",
+      "u_component_of_wind_850",
+      "v_component_of_wind_200",
+      "v_component_of_wind_500",
+      "v_component_of_wind_850",
+      "specific_humidity_200",
+      "specific_humidity_500",
+      "specific_humidity_850",
+      "total_precipitation_24hr",
+      "volumetric_soil_water_layer_1",
+    ],
+  }
+
+  # 1 output channel -> matches head.8.weight (64, 256) = 1 * (4*2)^2
+  # and conv_out.weight (1, 1, 3, 3) in the checkpoint.
+  dict_out_variables: {
+    'ERA5_DAYMET': [
+      "total_precipitation_24hr",
+    ],
+  }
+
+  var_weights: {
+    "2m_temperature": 10,
+    "10m_u_component_of_wind": 1,
+    "10m_v_component_of_wind": 1,
+    "total_precipitation_24hr": 1,
+    "2m_temperature_min": 10,
+    "2m_temperature_max": 10,
+  }

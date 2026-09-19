@@ -1,4 +1,5 @@
 # Standard library
+import os
 import random
 from dataclasses import dataclass
 
@@ -131,6 +132,7 @@ class NpyReader(IterableDataset):
         shuffle=False,
         div=1,
         overlap=4,
+        var_source_dirs=None,
     ):
         super().__init__()
         assert len(inp_file_list) == len(out_file_list)
@@ -143,6 +145,19 @@ class NpyReader(IterableDataset):
         self.data_par_group = data_par_group
         self.div = div
         self.overlap = overlap
+        # Optional {variable: root_dir} overrides: read these input variables
+        # from the same-named shard under a different dataset root.  Used when
+        # the low-res input is a fusion of two published datasets (e.g. ERA5
+        # upper-air predictors + Daymet surface fields on the same grid).
+        self.var_source_dirs = var_source_dirs or {}
+
+    def _input_source(self, var, inp_data, inp_sources, path_inp):
+        """Return the npz object a given input variable should be read from."""
+        root = self.var_source_dirs.get(var)
+        if root is None:
+            return inp_data
+        split = os.path.basename(os.path.dirname(path_inp))
+        return inp_sources[os.path.join(root, split, os.path.basename(path_inp))]
 
     def __iter__(self):
         if self.shuffle:
@@ -202,13 +217,29 @@ class NpyReader(IterableDataset):
             else:
                 out_data = np.load(path_out)
 
+            # Per-variable input overrides: same split, same file name, other root.
+            inp_sources = {}
+            for var, root in self.var_source_dirs.items():
+                split = os.path.basename(os.path.dirname(path_inp))
+                alt_path = os.path.join(root, split, os.path.basename(path_inp))
+                if alt_path not in inp_sources:
+                    inp_sources[alt_path] = np.load(alt_path)
+                inp_data_for = inp_sources[alt_path]
+                if var not in inp_data_for.files:
+                    raise KeyError(
+                        f"variable '{var}' not found in override file {alt_path}"
+                    )
+
             # Get dimensions from first variable
             first_in_var = self.variables[0]
             first_out_var = self.out_variables[0]
 
             # Extract dimension sizes (format: [time, channels, lat, lon])
-            input_width = len(inp_data[first_in_var][0, 0, 0, :])
-            input_height = len(inp_data[first_in_var][0, 0, :, 0])
+            first_in_src = self._input_source(
+                first_in_var, inp_data, inp_sources, path_inp
+            )
+            input_width = len(first_in_src[first_in_var][0, 0, 0, :])
+            input_height = len(first_in_src[first_in_var][0, 0, :, 0])
             output_width = len(out_data[first_out_var][0, 0, 0, :])
             output_height = len(out_data[first_out_var][0, 0, :, 0])
 
@@ -245,7 +276,9 @@ class NpyReader(IterableDataset):
                     # Extract tile data for all variables
                     input_tile = {
                         k: np.squeeze(
-                            inp_data[k][:, :, y_start_in:y_end_in, x_start_in:x_end_in],
+                            self._input_source(k, inp_data, inp_sources, path_inp)[k][
+                                :, :, y_start_in:y_end_in, x_start_in:x_end_in
+                            ],
                             axis=1,
                         )
                         for k in self.variables

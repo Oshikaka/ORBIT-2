@@ -28,7 +28,7 @@ module unload darshan-runtime
 
 #eval "$(/lustre/orion/world-shared/stf218/atsaris/env_test_march/miniconda/bin/conda shell.bash hook)"
 
-conda activate orbit
+conda activate /lustre/orion/csc662/proj-shared/xinru/envs/orbit
 
 #source activate /lustre/orion/lrn036/world-shared/xf9/torch27-rocm63
 #conda activate /lustre/orion/lrn036/world-shared/xf9/torch26
@@ -76,15 +76,27 @@ export ORBIT_USE_DDSTORE=0 ## 1 (enabled) or 0 (disable)
 
 export LD_PRELOAD=/lib64/libgcc_s.so.1:/usr/lib64/libstdc++.so.6
 
-# Visualization command examples:
-# 1. Use checkpoint path from config file (default):
-# time srun -n $((SLURM_JOB_NUM_NODES*8)) python ./visualize.py ../configs/interm_8m_ft.yaml
+# Visualization command examples (CONFIG defaults to the US 9.5M precipitation
+# inference config; override it from the command line with
+#   CONFIG=../configs/my.yaml sbatch -A csc662 -q debug -t 00:10:00 -N 1 launch_visualize.sh
+# ):
+# 1. Use checkpoint path from config file (default)
+# 2. Override with custom checkpoint path:  --checkpoint /path/to/custom.ckpt
+# 3. Pick sample / variable / output dir:   --index 10 --variable 2m_temperature_max --output-dir ../outputs
+#
+# NOTE: the old default here was ../configs/interm_8m_ft.yaml, a file that does
+# not exist anywhere in this repository, so the script could never run as-is.
 
-# 2. Override with custom checkpoint path:
-# time srun -n $((SLURM_JOB_NUM_NODES*8)) python ./visualize.py ../configs/interm_8m_ft.yaml --checkpoint /path/to/custom/checkpoint.ckpt
+CONFIG=${CONFIG:-../configs/infer_us_9.5m_precip.yaml}
+OUTPUT_DIR=${OUTPUT_DIR:-../outputs/us_9.5m_precip}
+INDEX=${INDEX:-0}
+VARIABLE=${VARIABLE:-total_precipitation_24hr}
 
-# 3. With additional options (index, variable, etc.):
-# time srun -n $((SLURM_JOB_NUM_NODES*8)) python ./visualize.py ../configs/interm_8m_ft.yaml --checkpoint /path/to/custom/checkpoint.ckpt --index 10 --variable 2m_temperature_max
+# visualize.py forces batch_size=1 and runs a single sample, so extra ranks only
+# add FSDP sharding. One rank is enough for the 9.5M model; raise -n for the
+# 126M/1B checkpoints.
+NTASKS=${NTASKS:-1}
 
-time srun -n $((SLURM_JOB_NUM_NODES*8)) python ./visualize.py ../configs/interm_8m_ft.yaml
+time srun -n $NTASKS python ./visualize.py "$CONFIG" \
+    --index "$INDEX" --variable "$VARIABLE" --output-dir "$OUTPUT_DIR"
 

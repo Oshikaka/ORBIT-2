@@ -1,5 +1,7 @@
 """Refactored visualization utilities for climate model outputs with tiling support."""
 
+import os
+
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -12,7 +14,7 @@ from scipy.stats import rankdata
 
 from ..data.processing.era5_constants import VAR_TO_UNIT as ERA5_VAR_TO_UNIT
 from ..data.processing.cmip6_constants import VAR_TO_UNIT as CMIP6_VAR_TO_UNIT
-from climate_learn.data.processing.era5_constants import CONSTANTS
+from climate_learn.data.processing.era5_constants import CONSTANTS, PRECIP_VARIABLES
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -77,6 +79,8 @@ class VisualizationConfig:
     flip_for_source: bool = True
     save_numpy: bool = True
     verbose: bool = True
+    output_dir: str = "."
+    prefix: str = "0"
 
 
 class TileProcessor:
@@ -470,6 +474,11 @@ def save_visualization(
     if rank != 0:
         return  # Only rank 0 saves files
 
+    os.makedirs(config.output_dir, exist_ok=True)
+
+    def out_path(name):
+        return os.path.join(config.output_dir, f"{config.prefix}_{name}")
+
     # Calculate min/max for consistent colormap scaling
     img_min = np.min(images["input"])
     img_max = np.max(images["input"])
@@ -481,8 +490,7 @@ def save_visualization(
         )
     )
     plt.imshow(images["input"], cmap=config.colormap, vmin=img_min, vmax=img_max)
-    plt.show()
-    plt.savefig("0_input.png")
+    plt.savefig(out_path("input.png"))
     plt.close()
 
     # Save prediction
@@ -493,12 +501,12 @@ def save_visualization(
         )
     )
     plt.imshow(images["prediction"], cmap=config.colormap, vmin=img_min, vmax=img_max)
-    plt.show()
-    plt.savefig("0_prediction.png")
+    plt.savefig(out_path("prediction.png"))
     plt.close()
 
     if config.save_numpy:
-        np.save("0_preds.npy", images["prediction"])
+        np.save(out_path("preds.npy"), images["prediction"])
+        np.save(out_path("input.npy"), images["input"])
 
     # Save ground truth if available
     if images["ground_truth"] is not None:
@@ -511,12 +519,75 @@ def save_visualization(
         plt.imshow(
             images["ground_truth"], cmap=config.colormap, vmin=img_min, vmax=img_max
         )
-        plt.show()
-        plt.savefig("0_truth.png")
+        plt.savefig(out_path("truth.png"))
         plt.close()
 
         if config.save_numpy:
-            np.save("0_truth.npy", images["ground_truth"])
+            np.save(out_path("truth.npy"), images["ground_truth"])
+
+
+def save_comparison_figure(
+    images: Dict[str, np.ndarray],
+    config: VisualizationConfig,
+    variable: str,
+    extent: List[float],
+    src: str,
+    rank: int = 0,
+) -> Optional[str]:
+    """Save a single annotated side-by-side figure (input / prediction / truth).
+
+    The three bare PNGs written by :func:`save_visualization` have no axes,
+    colorbar or units, which makes them hard to read on their own.  This adds
+    one labelled summary figure with a shared colour scale.
+    """
+    if rank != 0:
+        return None
+
+    os.makedirs(config.output_dir, exist_ok=True)
+
+    # The data pipeline stores precipitation as log1p(mm/day) and the
+    # denormalize transform is a no-op for it, so undo the log for plotting.
+    is_precip = variable in PRECIP_VARIABLES
+    conv = (lambda a: np.expm1(a)) if is_precip else (lambda a: a)
+    unit = "mm/day" if is_precip else ERA5_VAR_TO_UNIT.get(variable, "")
+
+    panels = [
+        ("Low-res input", conv(images["input"])),
+        ("ORBIT-2 downscaled", conv(images["prediction"])),
+    ]
+    if images["ground_truth"] is not None:
+        panels.append(("Ground truth", conv(images["ground_truth"])))
+
+    vmax = max(float(np.nanmax(p)) for _, p in panels)
+    vmin = min(float(np.nanmin(p)) for _, p in panels)
+
+    # process_single_tile already flipped the arrays for the sources listed in
+    # FLIP_REQUIRED_SOURCES, so row 0 is the northernmost latitude there and the
+    # southernmost everywhere else.  `extent` always runs lat.min -> lat.max, so
+    # the two cases need opposite imshow origins or the map comes out mirrored.
+    origin = "upper" if should_flip_image(src) else "lower"
+
+    fig, axes = plt.subplots(1, len(panels), figsize=(6 * len(panels), 5))
+    axes = np.atleast_1d(axes)
+    for ax, (title, data) in zip(axes, panels):
+        im = ax.imshow(
+            data,
+            cmap=config.colormap,
+            vmin=vmin,
+            vmax=vmax,
+            extent=extent,
+            origin=origin,
+            aspect="auto",
+        )
+        ax.set_title(f"{title}\n{data.shape[0]} x {data.shape[1]}")
+        ax.set_xlabel("Longitude")
+        ax.set_ylabel("Latitude")
+    fig.colorbar(im, ax=list(axes), fraction=0.025, pad=0.02, label=f"{variable} ({unit})")
+
+    path = os.path.join(config.output_dir, f"{config.prefix}_comparison.png")
+    fig.savefig(path, dpi=config.figure_dpi, bbox_inches="tight")
+    plt.close(fig)
+    return path
 
 
 def compute_metrics(
@@ -540,6 +611,7 @@ def compute_metrics(
             ground_truth, prediction, data_range=data_range
         ),
         "ssim": structural_similarity(ground_truth, prediction, data_range=data_range),
+        "rmse": float(np.sqrt(np.mean((prediction - ground_truth) ** 2))),
     }
 
     return metrics
@@ -651,6 +723,12 @@ def visualize_at_index(
 
     # Save visualizations
     save_visualization(images, config, dist.get_rank())
+    fig_path = save_comparison_figure(
+        images, config, variable, extent, src, dist.get_rank()
+    )
+    if fig_path is not None:
+        print(f"Saved figures and arrays under {os.path.abspath(config.output_dir)}")
+        print(f"Summary figure: {os.path.abspath(fig_path)}")
 
     # Compute metrics if requested
     if config.compute_metrics and has_ground_truth:
@@ -660,7 +738,8 @@ def visualize_at_index(
                 f"Metrics - PSNR: {metrics['psnr']:.4f}, SSIM: {metrics['ssim']:.4f}"
             )
             print(
-                f"Goodness of fit: PSNR {metrics['psnr']:.6f}, SSIM {metrics['ssim']:.6f}"
+                f"Goodness of fit: PSNR {metrics['psnr']:.6f}, SSIM {metrics['ssim']:.6f},"
+                f" RMSE {metrics['rmse']:.6f}"
             )
 
     # Print shape info for backward compatibility with original code

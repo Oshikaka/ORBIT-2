@@ -218,6 +218,18 @@ def main():
         default=None,
         help="Path to model checkpoint file (.ckpt). If provided, overrides the 'pretrain' path in config file",
     )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default=".",
+        help="Directory the PNGs and .npy arrays are written to (default: cwd)",
+    )
+    parser.add_argument(
+        "--prefix",
+        type=str,
+        default=None,
+        help="Filename prefix for the outputs (default: the sample index)",
+    )
     args = parser.parse_args()
     
     # Set environment variables
@@ -306,6 +318,9 @@ def main():
     dict_out_variables = conf["data"]["dict_out_variables"]
     dict_in_variables = conf["data"]["dict_in_variables"]
     default_vars = conf["data"]["default_vars"]
+    # Optional {dataset_key: {variable: root_dir}}: read these input variables
+    # from another dataset root on the same grid (see IterDataModule).
+    dict_in_var_dirs = conf["data"].get("low_res_var_dirs") or {}
 
     lr = float(conf["model"]["lr"])
     beta_1 = float(conf["model"]["beta_1"])
@@ -455,10 +470,13 @@ def main():
 
     in_vars = dict_in_variables[data_key]
     out_vars = dict_out_variables[data_key]
+    in_var_dirs = dict_in_var_dirs.get(data_key) or {}
 
     if world_rank == 0:
         print("in_vars", in_vars, flush=True)
         print("out_vars", out_vars, flush=True)
+        if in_var_dirs:
+            print("in_var_dirs (per-variable overrides)", in_var_dirs, flush=True)
 
     # Initialize data module for training data with tiling support
     data_module = cl.data.IterDataModule(
@@ -475,6 +493,7 @@ def main():
         num_workers=num_workers,
         div=div,
         overlap=overlap,
+        in_var_dirs=in_var_dirs,
     ).to(device)
 
     data_module.setup()
@@ -495,6 +514,7 @@ def main():
         num_workers=num_workers,
         div=1,
         overlap=0,
+        in_var_dirs=in_var_dirs,
     ).to(device)
 
     dm_vis.setup()
@@ -638,6 +658,11 @@ def main():
     # Run visualization on specified sample and variable
     # Note: All ranks must participate in visualization due to potential distributed operations
 
+    vis_config = cl.utils.visualize.VisualizationConfig(
+        output_dir=args.output_dir,
+        prefix=args.prefix if args.prefix is not None else str(args.index),
+    )
+
     with torch.no_grad():
         cl.utils.visualize.visualize_at_index(
             model,
@@ -654,6 +679,7 @@ def main():
             index=args.index,  # Sample index to visualize
             tensor_par_size=tensor_par_size,
             tensor_par_group=tensor_par_group,
+            config=vis_config,
         )
 
     # Clean up distributed process group

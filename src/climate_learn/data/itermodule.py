@@ -84,6 +84,7 @@ class IterDataModule(torch.nn.Module):
         pin_memory=False,
         div=1,  # TILES: number of divisions per dimension (div x div tiles)
         overlap=4,  # TILES: overlap size between adjacent tiles
+        in_var_dirs=None,  # {variable: root_dir} overrides for input variables
     ):
         super().__init__()
         self.task = task
@@ -100,6 +101,12 @@ class IterDataModule(torch.nn.Module):
         self.data_par_size = data_par_size
         self.div = div
         self.overlap = overlap
+        # Read these input variables from a different dataset root (same grid,
+        # same split, same file names).  Needed for the US fine-tuned ORBIT-2
+        # checkpoints, whose low-res input is ERA5 upper-air fused with the
+        # coarsened Daymet surface fields; the two halves are published as two
+        # separate directories.
+        self.in_var_dirs = in_var_dirs or {}
 
         if task in ("direct-forecasting", "iterative-forecasting"):
             self.dataset_caller = DirectForecast
@@ -145,7 +152,9 @@ class IterDataModule(torch.nn.Module):
             glob.glob(os.path.join(out_root_dir, "test", "*.npz"))
         )
 
-        self.transforms = self.get_normalize(inp_root_dir, in_vars)
+        self.transforms = self.get_normalize(
+            inp_root_dir, in_vars, var_dirs=self.in_var_dirs
+        )
         self.output_transforms = self.get_normalize(out_root_dir, out_vars)
         self.data_train: Optional[IterableDataset] = None
         self.data_val: Optional[IterableDataset] = None
@@ -232,14 +241,26 @@ class IterDataModule(torch.nn.Module):
 
         return in_size, out_size
 
-    def get_normalize(self, root_dir, variables):
-        normalize_mean = dict(np.load(os.path.join(root_dir, "normalize_mean.npz")))
-        normalize_std = dict(np.load(os.path.join(root_dir, "normalize_std.npz")))
+    def get_normalize(self, root_dir, variables, var_dirs=None):
+        stats = {}
+
+        def load_stats(d):
+            if d not in stats:
+                stats[d] = (
+                    dict(np.load(os.path.join(d, "normalize_mean.npz"))),
+                    dict(np.load(os.path.join(d, "normalize_std.npz"))),
+                )
+            return stats[d]
+
         normed = OrderedDict()
         for var in variables:
             if var in PRECIP_VARIABLES:
                 normed[var] = LogTransform(m2mm=True, LOG1P=True, thres_mm_per_day=0.25)
             else:
+                # A variable pulled from another dataset root must be
+                # standardised with that root's statistics, not this one's.
+                src_dir = (var_dirs or {}).get(var, root_dir)
+                normalize_mean, normalize_std = load_stats(src_dir)
                 normed[var] = transforms.Normalize(
                     normalize_mean[var][0], normalize_std[var][0]
                 )
@@ -283,6 +304,7 @@ class IterDataModule(torch.nn.Module):
                         shuffle=True,
                         div=self.div,
                         overlap=self.overlap,
+                        var_source_dirs=self.in_var_dirs,
                     ),
                     **self.dataset_arg,
                 ),
@@ -303,6 +325,7 @@ class IterDataModule(torch.nn.Module):
                         shuffle=False,
                         div=self.div,
                         overlap=self.overlap,
+                        var_source_dirs=self.in_var_dirs,
                     ),
                     **self.dataset_arg,
                 ),
@@ -323,6 +346,7 @@ class IterDataModule(torch.nn.Module):
                         shuffle=False,
                         div=self.div,
                         overlap=self.overlap,
+                        var_source_dirs=self.in_var_dirs,
                     ),
                     **self.dataset_arg,
                 ),
@@ -369,6 +393,7 @@ class IterDataModule(torch.nn.Module):
                             shuffle=False,
                             div=self.div,
                             overlap=self.overlap,
+                            var_source_dirs=self.in_var_dirs,
                         ),
                         **self.dataset_arg,
                     ),
@@ -389,6 +414,7 @@ class IterDataModule(torch.nn.Module):
                             shuffle=False,
                             div=self.div,
                             overlap=self.overlap,
+                            var_source_dirs=self.in_var_dirs,
                         ),
                         **self.dataset_arg,
                     ),
@@ -409,6 +435,7 @@ class IterDataModule(torch.nn.Module):
                         shuffle=False,
                         div=self.div,
                         overlap=self.overlap,
+                        var_source_dirs=self.in_var_dirs,
                     ),
                     **self.dataset_arg,
                 ),

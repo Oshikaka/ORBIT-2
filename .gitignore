@@ -5,3 +5,4 @@
 **/*.log
 **/checkpoints
 **/climate_learn.egg-info
+**/outputs
