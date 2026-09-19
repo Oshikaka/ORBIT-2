@@ -2,7 +2,7 @@
 trainer:
   max_epochs: 100
   checkpoint:
-  pretrain: "/lustre/orion/cli138/proj-shared/kurihana/super-res-torchlight/pretrained/precipitation_era5.ckpt"
+  pretrain: "/lustre/orion/csc662/proj-shared/xinru/models/orbit2/pretrain/intermediate_8m.ckpt"
   batch_size: 64
   buffer_size: 400
   num_workers: 2
@@ -23,7 +23,7 @@ model:
   patch_size: 2
   embed_dim: 256
   depth: 6
-  decoder_depth: 2
+  decoder_depth: 4
   num_heads: 4
   mlp_ratio: 4
   drop_path: 0.1

@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -A lrn036
+#SBATCH -A csc662
 #SBATCH -J flash
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:8
@@ -14,20 +14,21 @@
 [ -z $JOBSIZE ] && JOBSIZE=$SLURM_JOB_NUM_NODES
 
 
-source ~/miniconda3/etc/profile.d/conda.sh
+module load miniforge3/23.11.0-0
+source "$(conda info --base)/etc/profile.d/conda.sh"
 
 
 module load PrgEnv-gnu
-module load rocm/6.3.1
+module load rocm/6.4.1
 module load craype-accel-amd-gfx90a
 
 module unload darshan-runtime
-module unload libfabric
+#module unload libfabric   # 保留系统 libfabric/2.3.1，mpi4py 依赖它
 
 
 #eval "$(/lustre/orion/world-shared/stf218/atsaris/env_test_march/miniconda/bin/conda shell.bash hook)"
 
-conda activate /lustre/orion/lrn036/world-shared/xf9/torch27
+conda activate orbit
 
 #source activate /lustre/orion/lrn036/world-shared/xf9/torch27-rocm63
 #conda activate /lustre/orion/lrn036/world-shared/xf9/torch26
@@ -37,7 +38,7 @@ conda activate /lustre/orion/lrn036/world-shared/xf9/torch27
 ## DDStore and GPTL Timer
 
 #module use -a /lustre/orion/world-shared/lrn036/jyc/frontier/sw/modulefiles
-module load libfabric/1.22.0
+#module load libfabric/1.22.0   # 该版本已不存在于 lrn036 共享区（断链）
 module use -a /lustre/orion/world-shared/lrn036/jyc/frontier/sw/modulefiles
 module load SR_tools/devel-mpich8.1.31
 module load aws-ofi-rccl/devel
