@@ -10,16 +10,18 @@
   --plane:#f9f9f7; --surface:#fcfcfb; --surface-2:#f4f3f0;
   --ink:#0b0b0b; --ink-2:#52514e; --muted:#898781;
   --grid:#e1e0d9; --axis:#c3c2b7; --border:rgba(11,11,11,0.10);
-  --s1:#2a78d6; --s2:#eb6834;
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a;
   --s1-wash:rgba(42,120,214,0.10); --s2-wash:rgba(235,104,52,0.10);
+  --s3-wash:rgba(27,175,122,0.10);
 }
 :root[data-theme="dark"]{
   color-scheme:dark;
   --plane:#0d0d0d; --surface:#1a1a19; --surface-2:#222221;
   --ink:#ffffff; --ink-2:#c3c2b7; --muted:#898781;
   --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,0.10);
-  --s1:#3987e5; --s2:#d95926;
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70;
   --s1-wash:rgba(57,135,229,0.16); --s2-wash:rgba(217,89,38,0.16);
+  --s3-wash:rgba(25,158,112,0.18);
 }
 @media (prefers-color-scheme:dark){
   :root:where(:not([data-theme="light"])){
@@ -27,8 +29,9 @@
     --plane:#0d0d0d; --surface:#1a1a19; --surface-2:#222221;
     --ink:#ffffff; --ink-2:#c3c2b7; --muted:#898781;
     --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,0.10);
-    --s1:#3987e5; --s2:#d95926;
+    --s1:#3987e5; --s2:#d95926; --s3:#199e70;
     --s1-wash:rgba(57,135,229,0.16); --s2-wash:rgba(217,89,38,0.16);
+    --s3-wash:rgba(25,158,112,0.18);
   }
 }
 *{box-sizing:border-box}
@@ -114,23 +117,6 @@ figure{margin:24px 0; background:var(--surface); border:1px solid var(--border);
 figure .fig-title{font-weight:650; color:var(--ink); font-size:15px; margin:0 0 3px}
 figure .fig-sub{color:var(--muted); font-size:13px; margin:0 0 20px}
 figcaption{color:var(--muted); font-size:12.5px; margin-top:16px; border-top:1px solid var(--grid); padding-top:12px}
-.bars{display:grid; gap:18px}
-.bar-row{display:grid; grid-template-columns:186px 1fr; align-items:center; gap:14px}
-.bar-label{font-size:13.5px; color:var(--ink-2); text-align:right; line-height:1.4}
-.bar-track{position:relative; height:26px}
-.bar-fill{
-  height:26px; border-radius:0 4px 4px 0; background:var(--s1);
-  display:flex; align-items:center; justify-content:flex-end; padding-right:10px;
-  color:#fff; font-size:12.5px; font-variant-numeric:tabular-nums; font-weight:600;
-  transition:filter .12s;
-}
-.bar-row.alt .bar-fill{background:var(--s2)}
-.bar-track:hover .bar-fill{filter:brightness(1.08)}
-.bar-base{border-left:2px solid var(--axis); padding-left:0}
-.legend{display:flex; gap:18px; margin:0 0 18px; font-size:13px; color:var(--ink-2); align-items:center}
-.legend span{display:flex; align-items:center; gap:7px}
-.swatch{width:11px; height:11px; border-radius:3px; display:inline-block}
-
 .grid-viz{display:flex; gap:28px; flex-wrap:wrap; align-items:flex-start}
 .grid-viz .col{flex:1; min-width:250px}
 .grid-viz .col h4{margin:0 0 4px; font-size:13.5px; color:var(--ink)}
@@ -153,14 +139,116 @@ pre .c{color:var(--muted)}
 .two-col{display:grid; grid-template-columns:1fr 1fr; gap:18px; margin:20px 0}
 @media (max-width:760px){
   .two-col{grid-template-columns:1fr}
-  .bar-row{grid-template-columns:1fr}
-  .bar-label{text-align:left}
 }
 .mini{background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:18px 20px}
 .mini h4{margin:0 0 3px; font-size:15px; color:var(--ink)}
 .mini .tag{font-size:12px; color:var(--muted); margin:0 0 14px}
 .mini ol{margin:0; padding-left:20px; font-size:13px; color:var(--ink-2)}
 .mini ol li{margin:7px 0}
+
+/* ---- architecture diagram ---- */
+.arch-wrap{overflow-x:auto; margin:6px -2px 0; padding:2px 2px 6px}
+svg.arch{display:block; width:100%; min-width:980px; height:auto; font-family:inherit}
+svg.arch text{font-family:inherit}
+svg.arch .band{font-size:12px; letter-spacing:.11em; fill:var(--muted)}
+svg.arch .src{font-size:12px; fill:var(--muted)}
+svg.arch .src.mono,svg.arch .ns{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+svg.arch .src.mono{font-size:11px; fill:var(--ink-2)}
+svg.arch .wire{fill:none; stroke:var(--axis); stroke-width:1.5}
+svg.arch .wire.s1{stroke:var(--s1); stroke-opacity:.65}
+svg.arch .wire.s3{stroke:var(--s3); stroke-opacity:.8}
+svg.arch .wire.dash{stroke-dasharray:5 4}
+svg.arch .nd{cursor:pointer}
+svg.arch .nd:focus{outline:none}
+svg.arch .nd .box{fill:var(--surface-2); stroke:var(--axis); stroke-width:1.5;
+  transition:stroke-width .12s ease, filter .12s ease}
+svg.arch .nd .bdg{fill:var(--surface); stroke:var(--axis); stroke-width:1.5}
+svg.arch .nd .bdg-t{fill:var(--ink); font-size:11px; font-weight:700; text-anchor:middle;
+  font-variant-numeric:tabular-nums}
+svg.arch .nd .nt{fill:var(--ink); font-size:13px; font-weight:650}
+svg.arch .nd .ns{fill:var(--ink-2); font-size:11.5px}
+svg.arch .nd-s1 .box{fill:var(--s1-wash); stroke:var(--s1); stroke-opacity:.75}
+svg.arch .nd-s1 .bdg{stroke:var(--s1)}
+svg.arch .nd-s2 .box{fill:var(--s2-wash); stroke:var(--s2); stroke-opacity:.75}
+svg.arch .nd-s2 .bdg{stroke:var(--s2)}
+svg.arch .nd-s3 .box{fill:var(--s3-wash); stroke:var(--s3); stroke-opacity:.8}
+svg.arch .nd-s3 .bdg{stroke:var(--s3)}
+svg.arch .nd-out .box{fill:var(--surface); stroke:var(--ink); stroke-opacity:.5}
+svg.arch .nd-out .bdg{stroke:var(--ink); stroke-opacity:.5}
+svg.arch .nd-sum .box{fill:var(--surface); stroke:var(--ink-2); stroke-width:1.5}
+svg.arch .sum-t{fill:var(--ink); font-size:21px; font-weight:600; text-anchor:middle}
+svg.arch .nd:hover .box,svg.arch .nd:focus-visible .box{stroke-width:2.75; stroke-opacity:1}
+svg.arch .nd:focus-visible .box{stroke-width:3; stroke-dasharray:5 3}
+.arch-legend{display:flex; flex-wrap:wrap; gap:8px 20px; margin:16px 0 0; font-size:12.5px;
+  color:var(--ink-2); align-items:center}
+.arch-legend span{display:flex; align-items:center; gap:7px}
+.arch-legend i{width:12px; height:12px; border-radius:3px; display:inline-block;
+  border:1.5px solid var(--axis); background:var(--surface-2)}
+.arch-legend i.k1{background:var(--s1-wash); border-color:var(--s1)}
+.arch-legend i.k2{background:var(--s2-wash); border-color:var(--s2)}
+.arch-legend i.k3{background:var(--s3-wash); border-color:var(--s3)}
+.arch-hint{font-size:12px; color:var(--muted); margin:10px 0 0}
+
+/* ---- shared figure tooltip ---- */
+.figtip{
+  position:fixed; z-index:60; max-width:340px; pointer-events:none;
+  background:var(--surface); color:var(--ink-2); border:1px solid var(--border);
+  border-radius:10px; padding:12px 14px; font-size:12.5px; line-height:1.6;
+  box-shadow:0 10px 30px rgba(0,0,0,.16);
+}
+.figtip b{color:var(--ink); font-size:13.5px; display:block; margin-bottom:6px}
+.figtip p{margin:0 0 6px; max-width:none}
+.figtip .tio,.figtip .tex,.figtip .tr{
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:11.5px;
+}
+.figtip .tio{color:var(--ink)}
+.figtip .tex,.figtip .tr{color:var(--muted)}
+.figtip .tn{margin-top:8px}
+.figtip p:last-child{margin-bottom:0}
+
+/* ---- cost chart ---- */
+.cost{position:relative; padding:4px 0 28px}
+.cost-grid{position:absolute; left:166px; right:166px; top:0; bottom:28px; pointer-events:none}
+.cost-grid i{position:absolute; top:0; bottom:0; width:1px; background:var(--grid)}
+.cost-grid i:first-child,.cost-grid i:last-child{background:var(--axis)}
+.cost-row{display:grid; grid-template-columns:150px 1fr 150px; gap:16px;
+  align-items:center; padding:10px 0; position:relative}
+.cost-lab{text-align:right; font-size:13.5px; color:var(--ink-2); line-height:1.4}
+.cost-lab span{display:block; font-size:11.5px; color:var(--muted);
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.cost-track{height:24px; position:relative}
+.cost-fill{height:24px; border-radius:0 4px 4px 0; background:var(--s2); transition:filter .12s}
+.cost-row:hover .cost-fill{filter:brightness(1.07)}
+.cost-val{font-size:15px; font-weight:650; color:var(--ink); font-variant-numeric:tabular-nums;
+  line-height:1.3}
+.cost-val span{display:block; font-size:11.5px; font-weight:400; color:var(--muted);
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.cost-axis{position:absolute; left:166px; right:166px; bottom:0; height:22px;
+  font-size:11.5px; color:var(--muted); font-variant-numeric:tabular-nums}
+.cost-axis span{position:absolute; transform:translateX(-50%); white-space:nowrap; top:4px}
+.cost-axis span.t0{transform:none}
+.cost-axis span.t100{transform:translateX(-100%)}
+details.tblview{margin:18px 0 0; font-size:13px}
+details.tblview summary{cursor:pointer; color:var(--ink-2); font-size:12.5px}
+details.tblview table{margin:12px 0 0}
+@media (max-width:760px){
+  .cost-grid,.cost-axis{display:none}
+  .cost{padding-bottom:4px}
+  .cost-row{grid-template-columns:1fr; gap:6px; padding:12px 0}
+  .cost-lab{text-align:left}
+}
+
+/* ---- stage anchors ---- */
+.stage{scroll-margin-top:28px}
+.stage.hi3{border-color:var(--s3); box-shadow:0 0 0 3px var(--s3-wash)}
+.stage.hi3 .badge{background:var(--s3); color:#fff}
+@keyframes stageflash{
+  0%{box-shadow:0 0 0 0 rgba(42,120,214,.45)}
+  35%{box-shadow:0 0 0 7px rgba(42,120,214,0)}
+  100%{box-shadow:0 0 0 0 rgba(42,120,214,0)}
+}
+.stage.flash{animation:stageflash 1.2s ease-out}
+@media (prefers-reduced-motion:reduce){.stage.flash{animation:none}}
 </style>
 </head>
 <body>
@@ -212,6 +300,204 @@ pre .c{color:var(--muted)}
   ERA5 1.40625°（<code>H=128, W=256</code>）、2 个变量、其余全用默认值、<code>B=2</code>。
 </p>
 
+<figure id="fig-arch">
+  <p class="fig-title">端到端结构：从 NPZ 到预报场</p>
+  <p class="fig-sub">
+    四条泳道按执行顺序折行排列，节点上的等宽字是<strong>该步的输出形状</strong>。
+    橙色是 Sparse-Reslim 的稀疏路由，青色是并行卷积残差支路。
+  </p>
+  <div class="arch-wrap">
+<svg class="arch" viewBox="0 0 1240 700" role="img" aria-labelledby="archTitle archDesc" preserveAspectRatio="xMinYMin meet">
+<title id="archTitle">Sparse-Reslim 预报流水线端到端结构图</title>
+<desc id="archDesc">四条泳道依次是：数据侧四步、编码四步、dense→sparse→dense 路由五步、解码两步，外加一条并行卷积残差支路；两路相加得到预报。每个节点标注该步的输出张量形状。同样的内容在下方第 2、3 节和第 7 节速查表里有完整文字版。</desc>
+<defs>
+<marker id="ahn" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto"><path d="M0.5,1 L9,5 L0.5,9 Z" fill="var(--axis)"/></marker>
+<marker id="ah1" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto"><path d="M0.5,1 L9,5 L0.5,9 Z" fill="var(--s1)"/></marker>
+<marker id="ah3" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto"><path d="M0.5,1 L9,5 L0.5,9 Z" fill="var(--s3)"/></marker>
+</defs>
+<text class="band" x="28" y="30">数据侧 · train.py</text>
+<g class="nd nd-data" tabindex="0" role="link" data-target="#s-d1" data-t="读盘并统一布局" data-io="NPZ[var] = [T, H, W] 或 [T, 1, H, W] &amp;rarr; [T, H, W]" data-ex="" data-n="长度为 1 的多余维会被压掉；其他维数直接报错，不猜。" data-ref="train.py · _as_time_lat_lon()">
+<title>读盘 · 统一布局</title>
+<rect class="box" x="28" y="46" width="200" height="66" rx="11"/>
+<circle class="bdg" cx="52" cy="70" r="12.5"/>
+<text class="bdg-t" x="52" y="74">D1</text>
+<text class="nt" x="74" y="75">读盘 · 统一布局</text>
+<text class="ns" x="44" y="98">[T, H, W]</text>
+</g>
+<g class="nd nd-data" tabindex="0" role="link" data-target="#s-d2" data-t="逐变量标准化" data-io="(x &amp;minus; mean[var]) / std[var]，每个变量一个标量" data-ex="" data-n="标签也被同一组常数标准化了，所以后面的 loss 是归一化空间里的数。" data-ref="train.py · _load_normalization()">
+<title>逐变量标准化</title>
+<rect class="box" x="274" y="46" width="200" height="66" rx="11"/>
+<circle class="bdg" cx="298" cy="70" r="12.5"/>
+<text class="bdg-t" x="298" y="74">D2</text>
+<text class="nt" x="320" y="75">逐变量标准化</text>
+<text class="ns" x="290" y="98">[T, H, W]</text>
+</g>
+<path class="wire" d="M228,79 H271" marker-end="url(#ahn)"/>
+<g class="nd nd-data" tabindex="0" role="link" data-target="#s-d3" data-t="切出一个「输入历史 → 未来标签」样本对" data-io="输入 [T, V, H, W] · 标签 [V<sub>out</sub>, H, W]" data-ex="" data-n="直接预报：标签取单帧 t + pred_range，一次跳到目标时刻，不做自回归滚动。" data-ref="train.py · ERA5ForecastDataset">
+<title>切「历史 → 未来」对</title>
+<rect class="box" x="520" y="46" width="200" height="66" rx="11"/>
+<circle class="bdg" cx="544" cy="70" r="12.5"/>
+<text class="bdg-t" x="544" y="74">D3</text>
+<text class="nt" x="566" y="75">切「历史 → 未来」对</text>
+<text class="ns" x="536" y="98">[T, V, H, W] + 标签</text>
+</g>
+<path class="wire" d="M474,79 H517" marker-end="url(#ahn)"/>
+<g class="nd nd-data" tabindex="0" role="link" data-target="#s-d4" data-t="DataLoader 组 batch" data-io="输入 [B, T, V, H, W] · 标签 [B, V<sub>out</sub>, H, W]" data-ex="(2, 1, 2, 128, 256)" data-n="这就是喂给模型的东西。模型也接受省掉时间维的 [B, V, H, W]。" data-ref="train.py · DataLoader">
+<title>组 batch</title>
+<rect class="box" x="766" y="46" width="200" height="66" rx="11"/>
+<circle class="bdg" cx="790" cy="70" r="12.5"/>
+<text class="bdg-t" x="790" y="74">D4</text>
+<text class="nt" x="812" y="75">组 batch</text>
+<text class="ns" x="782" y="98">[B, T, V, H, W]</text>
+</g>
+<path class="wire" d="M720,79 H763" marker-end="url(#ahn)"/>
+<path class="wire" d="M866,112 V138.0 Q866,151.0 853,151.0 H141.0 Q128,151.0 128,164.0 V187" marker-end="url(#ahn)"/>
+<text class="band" x="28" y="174">编码 · 气象场 → token</text>
+<g class="nd nd-s1" tabindex="0" role="link" data-target="#s-2" data-t="逐变量 patch 嵌入" data-io="[B, T, H, W] &amp;rarr; [B, D, H/p, W/p] &amp;rarr; [B, L, D]" data-ex="(2,1,128,256) → (2,128,64,128) → (2,8192,128)" data-n="每个变量有自己独立的 Conv2d(T→D, kernel=stride=p)；历史帧放在通道维里，一次卷积就把时间吃掉了。L = (H/p)·(W/p)。" data-ref="model.py · PatchEmbed">
+<title>逐变量 Patch 嵌入</title>
+<rect class="box" x="28" y="190" width="200" height="66" rx="11"/>
+<circle class="bdg" cx="52" cy="214" r="12.5"/>
+<text class="bdg-t" x="52" y="218">2</text>
+<text class="nt" x="74" y="219">逐变量 Patch 嵌入</text>
+<text class="ns" x="44" y="242">[B, L, D] × V</text>
+</g>
+<g class="nd nd-s1" tabindex="0" role="link" data-target="#s-3" data-t="堆叠变量 + 变量身份嵌入" data-io="V × [B, L, D] &amp;rarr; [B, L, V, D]，加 variable_embed [1, 1, V, D]" data-ex="(2, 8192, 2, 128)" data-n="可学习的 variable_embed 告诉模型「这一条是哪个变量」。" data-ref="model.py · variable_embed">
+<title>堆叠 + 变量嵌入</title>
+<rect class="box" x="274" y="190" width="200" height="66" rx="11"/>
+<circle class="bdg" cx="298" cy="214" r="12.5"/>
+<text class="bdg-t" x="298" y="218">3</text>
+<text class="nt" x="320" y="219">堆叠 + 变量嵌入</text>
+<text class="ns" x="290" y="242">[B, L, V, D]</text>
+</g>
+<path class="wire" d="M228,223 H271" marker-end="url(#ahn)"/>
+<g class="nd nd-s1" tabindex="0" role="link" data-target="#s-4" data-t="变量聚合：把 V 个变量压成 1 个 token" data-io="[B·L, V, D] + query [B·L, 1, D] &amp;rarr; [B, L, D]" data-ex="(16384, 2, 128) → (2, 8192, 128)" data-n="一个可学习的 variable_query 做交叉注意力。注意力只在变量维上做，B·L 全被当成 batch，所以 L 不随变量数增长。" data-ref="model.py · variable_query">
+<title>变量聚合</title>
+<rect class="box" x="520" y="190" width="200" height="66" rx="11"/>
+<circle class="bdg" cx="544" cy="214" r="12.5"/>
+<text class="bdg-t" x="544" y="218">4</text>
+<text class="nt" x="566" y="219">变量聚合</text>
+<text class="ns" x="536" y="242">[B, L, D]</text>
+</g>
+<path class="wire" d="M474,223 H517" marker-end="url(#ahn)"/>
+<g class="nd nd-s1" tabindex="0" role="link" data-target="#s-5" data-t="加位置嵌入" data-io="[B, L, D] + position_embed [1, L, D] &amp;rarr; [B, L, D]" data-ex="" data-n="可学习参数，形状在建模型时就按 L 定死了——换网格尺寸就得重新训。" data-ref="model.py · position_embed">
+<title>加位置嵌入</title>
+<rect class="box" x="766" y="190" width="200" height="66" rx="11"/>
+<circle class="bdg" cx="790" cy="214" r="12.5"/>
+<text class="bdg-t" x="790" y="218">5</text>
+<text class="nt" x="812" y="219">加位置嵌入</text>
+<text class="ns" x="782" y="242">[B, L, D]</text>
+</g>
+<path class="wire" d="M720,223 H763" marker-end="url(#ahn)"/>
+<path class="wire" d="M866,256 V282.0 Q866,295.0 853,295.0 H141.0 Q128,295.0 128,308.0 V331" marker-end="url(#ahn)"/>
+<text class="band" x="28" y="318">路由 · dense → sparse → dense</text>
+<g class="nd nd-s1" tabindex="0" role="link" data-target="#s-6" data-t="前段稠密块 × num_dense_early" data-io="[B, L, D] &amp;rarr; [B, L, D]" data-ex="(2, 8192, 128)" data-n="标准 pre-norm Transformer 编码层（GELU，mlp_ratio=4）。默认只有 1 层，让全部 token 先互相看一眼。" data-ref="model.py · dense blocks">
+<title>前段稠密块 ×1</title>
+<rect class="box" x="28" y="334" width="200" height="66" rx="11"/>
+<circle class="bdg" cx="52" cy="358" r="12.5"/>
+<text class="bdg-t" x="52" y="362">6</text>
+<text class="nt" x="74" y="363">前段稠密块 ×1</text>
+<text class="ns" x="44" y="386">[B, L, D]</text>
+</g>
+<g class="nd nd-s2" tabindex="0" role="link" data-target="#s-7" data-t="采样 token 子集（无参数路由）" data-io="[B, L, D] &amp;rarr; 索引 [B, L·r] &amp;rarr; gather [B, L·r, D]" data-ex="8192 → 2048（25%）" data-n="torch.rand(B, L).topk(L·r)：每个样本独立随机抽一批空间位置，抽完按索引排序。没有任何可学习参数，也不看 token 内容。" data-ref="model.py · token routing">
+<title>采样 25% token</title>
+<rect class="box" x="274" y="334" width="200" height="66" rx="11"/>
+<circle class="bdg" cx="298" cy="358" r="12.5"/>
+<text class="bdg-t" x="298" y="362">7</text>
+<text class="nt" x="320" y="363">采样 25% token</text>
+<text class="ns" x="290" y="386">[B, L·r, D]</text>
+</g>
+<path class="wire" d="M228,367 H271" marker-end="url(#ahn)"/>
+<g class="nd nd-s2" tabindex="0" role="link" data-target="#s-8" data-t="中段稀疏块 × num_sparse_middle" data-io="[B, L·r, D] &amp;rarr; [B, L·r, D]" data-ex="(2, 2048, 128)" data-n="默认 4 层，只在这 25% 的 token 上跑。序列短了 4 倍，自注意力这一项就省了 16 倍。" data-ref="model.py · sparse blocks">
+<title>中段稀疏块 ×4</title>
+<rect class="box" x="520" y="334" width="200" height="66" rx="11"/>
+<circle class="bdg" cx="544" cy="358" r="12.5"/>
+<text class="bdg-t" x="544" y="362">8</text>
+<text class="nt" x="566" y="363">中段稀疏块 ×4</text>
+<text class="ns" x="536" y="386">[B, L·r, D]</text>
+</g>
+<path class="wire" d="M474,367 H517" marker-end="url(#ahn)"/>
+<g class="nd nd-s2" tabindex="0" role="link" data-target="#s-9" data-t="散射回稠密网格（残差形式）" data-io="scatter(稀疏输出 &amp;minus; 稀疏输入) &amp;rarr; [B, L, D]" data-ex="(2, 8192, 128)" data-n="写回的是增量而不是替换值：被跳过的 token 拿到 0，因此原样保留在恒等路径上。这正是名字里 “Reslim” 的来历。" data-ref="model.py · scatter">
+<title>散射回稠密 · Δ</title>
+<rect class="box" x="766" y="334" width="200" height="66" rx="11"/>
+<circle class="bdg" cx="790" cy="358" r="12.5"/>
+<text class="bdg-t" x="790" y="362">9</text>
+<text class="nt" x="812" y="363">散射回稠密 · Δ</text>
+<text class="ns" x="782" y="386">[B, L, D]</text>
+</g>
+<path class="wire" d="M720,367 H763" marker-end="url(#ahn)"/>
+<g class="nd nd-s1" tabindex="0" role="link" data-target="#s-10" data-t="后段稠密块 × num_dense_late + LayerNorm" data-io="[B, L, D] &amp;rarr; [B, L, D]" data-ex="(2, 8192, 128)" data-n="num_dense_late = depth − early − middle，默认 6 − 1 − 4 = 1。让被修正过的和被跳过的 token 重新混合，避免残留拼接痕迹。" data-ref="model.py · dense blocks">
+<title>后段稠密块 ×1</title>
+<rect class="box" x="1012" y="334" width="200" height="66" rx="11"/>
+<circle class="bdg" cx="1036" cy="358" r="12.5"/>
+<text class="bdg-t" x="1036" y="362">10</text>
+<text class="nt" x="1058" y="363">后段稠密块 ×1</text>
+<text class="ns" x="1028" y="386">[B, L, D]</text>
+</g>
+<path class="wire" d="M966,367 H1009" marker-end="url(#ahn)"/>
+<path class="wire" d="M1112,400 V426.0 Q1112,439.0 1099,439.0 H141.0 Q128,439.0 128,452.0 V475" marker-end="url(#ahn)"/>
+<text class="band" x="28" y="462">解码 · token → 气象场</text>
+<g class="nd nd-s1" tabindex="0" role="link" data-target="#s-11" data-t="解码头" data-io="[B, L, D] &amp;rarr; [B, L, V<sub>out</sub>·p²]" data-ex="(2, 8192, 8)，即 2 变量 × 2 × 2" data-n="单层 Linear，把每个 token 展开成它那一小块 patch 上所有输出变量的像素。" data-ref="model.py · head">
+<title>解码头</title>
+<rect class="box" x="28" y="478" width="200" height="66" rx="11"/>
+<circle class="bdg" cx="52" cy="502" r="12.5"/>
+<text class="bdg-t" x="52" y="506">11</text>
+<text class="nt" x="74" y="507">解码头</text>
+<text class="ns" x="44" y="530">[B, L, V<tspan dy="2.5" font-size="9">out</tspan><tspan dy="-2.5"> </tspan>·p²]</text>
+</g>
+<g class="nd nd-s1" tabindex="0" role="link" data-target="#s-12" data-t="Unpatchify：拼回二维场" data-io="[B, L, V<sub>out</sub>·p²] &amp;rarr; [B, V<sub>out</sub>, H, W]" data-ex="(2, 8192, 8) → (2, 2, 128, 256)" data-n="reshape 成 [B, H/p, W/p, V<sub>out</sub>, p, p]，换轴再合并。分辨率进出相同——这是预报和降尺度最直观的区别。" data-ref="model.py · unpatchify()">
+<title>Unpatchify</title>
+<rect class="box" x="274" y="478" width="200" height="66" rx="11"/>
+<circle class="bdg" cx="298" cy="502" r="12.5"/>
+<text class="bdg-t" x="298" y="506">12</text>
+<text class="nt" x="320" y="507">Unpatchify</text>
+<text class="ns" x="290" y="530">[B, V<tspan dy="2.5" font-size="9">out</tspan><tspan dy="-2.5"> </tspan>, H, W]</text>
+</g>
+<path class="wire" d="M228,511 H271" marker-end="url(#ahn)"/>
+<text class="band" x="28" y="594">并行支路 · 局部持续性修正</text>
+<text class="src" x="30" y="636">直接取自模型输入</text>
+<text class="src mono" x="30" y="656">x[:, −1, out_idx]</text>
+<path class="wire dash s3" d="M200,643 H271" marker-end="url(#ah3)"/>
+<g class="nd nd-s3" tabindex="0" role="link" data-target="#s-13" data-t="并行卷积残差支路" data-io="x[:, −1, out_idx] &amp;rarr; Conv3×3 &amp;rarr; GELU &amp;rarr; Conv3×3 &amp;rarr; [B, V<sub>out</sub>, H, W]" data-ex="" data-n="取最后一帧历史场里的输出变量，隐藏宽度 max(16, D/4)。只做局部持续性修正，和 Transformer 支路并行，不共享权重。也正因为要从输入里按名字取输出变量，输出变量必须是输入变量的子集。" data-ref="model.py · residual conv branch">
+<title>卷积残差支路</title>
+<rect class="box" x="274" y="610" width="200" height="66" rx="11"/>
+<circle class="bdg" cx="298" cy="634" r="12.5"/>
+<text class="bdg-t" x="298" y="638">13</text>
+<text class="nt" x="320" y="639">卷积残差支路</text>
+<text class="ns" x="290" y="662">[B, V<tspan dy="2.5" font-size="9">out</tspan><tspan dy="-2.5"> </tspan>, H, W]</text>
+</g>
+<path class="wire s1" d="M474,511 H607.0 Q620,511.0 620,524.0 V552.0" marker-end="url(#ah1)"/>
+<path class="wire s3" d="M474,643 H607.0 Q620,643.0 620,630.0 V602.0" marker-end="url(#ah3)"/>
+<g class="nd nd-sum" tabindex="0" role="link" data-target="#s-14" data-t="相加得到预报" data-io="第 12 步 + 第 13 步 &rarr; [B, V<sub>out</sub>, H, W]" data-ex="(2, 2, 128, 256)" data-n="两路并行、不共享权重，相加后和标签形状完全对齐。" data-ref="model.py · forward()">
+<title>第 14 步：两路相加</title>
+<circle class="box" cx="620" cy="577" r="22"/>
+<text class="sum-t" x="620" y="584">+</text>
+</g>
+<path class="wire" d="M642,577 H697" marker-end="url(#ahn)"/>
+<g class="nd nd-out" tabindex="0" role="link" data-target="#s-14" data-t="预报输出" data-io="[B, V<sub>out</sub>, H, W]" data-ex="(2, 2, 128, 256)" data-n="和标签形状完全对齐，直接算归一化空间里的 MSE。" data-ref="train.py · ForecastModule">
+<title>预报输出</title>
+<rect class="box" x="700" y="544" width="230" height="66" rx="11"/>
+<circle class="bdg" cx="724" cy="568" r="12.5"/>
+<text class="bdg-t" x="724" y="572">14</text>
+<text class="nt" x="746" y="573">预报输出</text>
+<text class="ns" x="716" y="596">[B, V<tspan dy="2.5" font-size="9">out</tspan><tspan dy="-2.5"> </tspan>, H, W]</text>
+</g>
+<text class="src" x="955" y="570">与标签同形状</text>
+<text class="src mono" x="955" y="590">F.mse_loss(ŷ, y)</text>
+</svg>
+  </div>
+  <div class="arch-legend">
+    <span><i></i>数据侧（train.py）</span>
+    <span><i class="k1"></i>稠密 Transformer 路径</span>
+    <span><i class="k2"></i>稀疏路由（Sparse-Reslim 核心）</span>
+    <span><i class="k3"></i>并行卷积残差支路</span>
+  </div>
+  <p class="arch-hint">把鼠标停在任意节点上看它的输入输出、实测形状和代码位置；点击（或聚焦后按回车）跳到下文对应的那一步。</p>
+  <figcaption>
+    整张图对应下文第 2 节（D1–D4）和第 3 节（1–14）。所有形状都是在 Frontier 的 <code>orbit</code> 环境里实际跑出来的；
+    实测样例统一取 <code>B=2, T=1, V=V<sub>out</sub>=2, H=128, W=256, p=2, D=128, depth=6, r=0.25</code>。
+  </figcaption>
+</figure>
+
 <h2><span class="num">2</span>数据侧：从 NPZ 到一个 batch</h2>
 <p>
   训练脚本读的是 ORBIT 一贯的按 split 分目录的 NPZ 布局。<strong>预报只需要一个目录</strong>，
@@ -226,7 +512,7 @@ pre .c{color:var(--muted)}
 
 <div class="flow">
 
-<div class="stage">
+<div class="stage" id="s-d1">
   <div class="badge">D1</div>
   <div>
     <p class="title">读盘并统一布局</p>
@@ -242,7 +528,7 @@ pre .c{color:var(--muted)}
 </div>
 <div class="connector"></div>
 
-<div class="stage">
+<div class="stage" id="s-d2">
   <div class="badge">D2</div>
   <div>
     <p class="title">逐变量标准化</p>
@@ -260,7 +546,7 @@ pre .c{color:var(--muted)}
 </div>
 <div class="connector"></div>
 
-<div class="stage">
+<div class="stage" id="s-d3">
   <div class="badge">D3</div>
   <div>
     <p class="title">切出一个「输入历史 → 未来标签」样本对</p>
@@ -278,7 +564,7 @@ pre .c{color:var(--muted)}
 </div>
 <div class="connector"></div>
 
-<div class="stage">
+<div class="stage" id="s-d4">
   <div class="badge">D4</div>
   <div>
     <p class="title">DataLoader 组 batch</p>
@@ -298,13 +584,14 @@ pre .c{color:var(--muted)}
 
 <h2><span class="num">3</span>模型侧：14 步形状流</h2>
 <p class="sub">
-  橙色标出的三步是 Sparse-Reslim 的核心，其余部分是一个常规的变量聚合 ViT。
+  橙色标出的第 7–9 步是 Sparse-Reslim 的核心，青色的第 13 步是并行卷积支路，其余部分是一个常规的变量聚合 ViT。
+  整体结构见<a href="#fig-arch">上面那张结构图</a>。
 </p>
 
 <div class="group-label">编码：把气象场变成 token</div>
 <div class="flow">
 
-<div class="stage">
+<div class="stage" id="s-1">
   <div class="badge">1</div>
   <div>
     <p class="title">输入</p>
@@ -317,7 +604,7 @@ pre .c{color:var(--muted)}
 </div>
 <div class="connector"></div>
 
-<div class="stage">
+<div class="stage" id="s-2">
   <div class="badge">2</div>
   <div>
     <p class="title">逐变量 patch 嵌入</p>
@@ -337,7 +624,7 @@ pre .c{color:var(--muted)}
 </div>
 <div class="connector"></div>
 
-<div class="stage">
+<div class="stage" id="s-3">
   <div class="badge">3</div>
   <div>
     <p class="title">堆叠变量 + 变量身份嵌入</p>
@@ -353,7 +640,7 @@ pre .c{color:var(--muted)}
 </div>
 <div class="connector"></div>
 
-<div class="stage">
+<div class="stage" id="s-4">
   <div class="badge">4</div>
   <div>
     <p class="title">变量聚合：把 V 个变量压成 1 个 token</p>
@@ -373,7 +660,7 @@ pre .c{color:var(--muted)}
 </div>
 <div class="connector"></div>
 
-<div class="stage">
+<div class="stage" id="s-5">
   <div class="badge">5</div>
   <div>
     <p class="title">加位置嵌入</p>
@@ -394,7 +681,7 @@ pre .c{color:var(--muted)}
 <div class="group-label">路由：dense → sparse → dense</div>
 <div class="flow">
 
-<div class="stage">
+<div class="stage" id="s-6">
   <div class="badge">6</div>
   <div>
     <p class="title">前段稠密块 ×<code>num_dense_early</code></p>
@@ -406,7 +693,7 @@ pre .c{color:var(--muted)}
 </div>
 <div class="connector"></div>
 
-<div class="stage hi">
+<div class="stage hi" id="s-7">
   <div class="badge">7</div>
   <div>
     <p class="title">采样 token 子集（无参数路由）</p>
@@ -427,7 +714,7 @@ pre .c{color:var(--muted)}
 </div>
 <div class="connector"></div>
 
-<div class="stage hi">
+<div class="stage hi" id="s-8">
   <div class="badge">8</div>
   <div>
     <p class="title">中段稀疏块 ×<code>num_sparse_middle</code></p>
@@ -441,7 +728,7 @@ pre .c{color:var(--muted)}
 </div>
 <div class="connector"></div>
 
-<div class="stage hi">
+<div class="stage hi" id="s-9">
   <div class="badge">9</div>
   <div>
     <p class="title">散射回稠密网格（残差形式）</p>
@@ -459,7 +746,7 @@ pre .c{color:var(--muted)}
 </div>
 <div class="connector"></div>
 
-<div class="stage">
+<div class="stage" id="s-10">
   <div class="badge">10</div>
   <div>
     <p class="title">后段稠密块 ×<code>num_dense_late</code> + LayerNorm</p>
@@ -478,7 +765,7 @@ pre .c{color:var(--muted)}
 <div class="group-label">解码：token 变回气象场</div>
 <div class="flow">
 
-<div class="stage">
+<div class="stage" id="s-11">
   <div class="badge">11</div>
   <div>
     <p class="title">解码头</p>
@@ -491,7 +778,7 @@ pre .c{color:var(--muted)}
 </div>
 <div class="connector"></div>
 
-<div class="stage">
+<div class="stage" id="s-12">
   <div class="badge">12</div>
   <div>
     <p class="title">Unpatchify：拼回二维场</p>
@@ -507,7 +794,7 @@ pre .c{color:var(--muted)}
 </div>
 <div class="connector"></div>
 
-<div class="stage">
+<div class="stage hi3" id="s-13">
   <div class="badge">13</div>
   <div>
     <p class="title">并行卷积残差支路</p>
@@ -525,7 +812,7 @@ pre .c{color:var(--muted)}
 </div>
 <div class="connector"></div>
 
-<div class="stage">
+<div class="stage" id="s-14">
   <div class="badge">14</div>
   <div>
     <p class="title">相加得到预报</p>
@@ -547,31 +834,52 @@ pre .c{color:var(--muted)}
   下面按默认配置（<code>L=8192</code>，<code>depth=6</code>，<code>1 dense → 4 sparse → 1 dense</code>，<code>r=0.25</code>）把注意力矩阵的规模算出来。
 </p>
 
-<figure>
-  <p class="fig-title">注意力矩阵规模：全稠密 vs. 1-4-1 稀疏路由</p>
-  <p class="fig-sub">按 Σ L<sub>block</sub>² 计，单位为 10⁶。L = 8192，稀疏层 L·r = 2048。</p>
-  <div class="legend">
-    <span><i class="swatch" style="background:var(--s1)"></i>全部 6 层稠密</span>
-    <span><i class="swatch" style="background:var(--s2)"></i>1-4-1 稀疏路由（本示例默认）</span>
-  </div>
-  <div class="bars">
-    <div class="bar-row">
-      <div class="bar-label">6 层全稠密<br><span style="color:var(--muted);font-size:12px">6 × 8192²</span></div>
-      <div class="bar-track bar-base" title="6 层全稠密：402.7M">
-        <div class="bar-fill" style="width:100%">402.7M</div>
-      </div>
+<figure id="fig-cost">
+  <p class="fig-title">稀疏路由把两项开销分别压到全稠密的 37.5% 和 50.0%</p>
+  <p class="fig-sub">默认配置 <code>L=8192</code>、<code>depth=6</code>、<code>1 dense → 4 sparse → 1 dense</code>、<code>r=0.25</code>；以 6 层全稠密为 100%。</p>
+  <div class="cost">
+    <div class="cost-grid" aria-hidden="true"><i style="left:0"></i><i style="left:25%"></i><i style="left:50%"></i><i style="left:75%"></i><i style="left:100%"></i></div>
+    <div class="cost-row"
+      data-t="注意力项 · Σ L&#178;"
+      data-io="1-4-1 稀疏：2 × 8192&#178; + 4 × 2048&#178; = 150,994,944"
+      data-ex="6 层全稠密：6 × 8192&#178; = 402,653,184"
+      data-n="自注意力随序列长度平方增长，所以中段 token 砍到 1/4，每一层就省 16 倍。"
+      data-ref="占全稠密的 37.5%">
+      <div class="cost-lab">注意力项<span>Σ L<sub>block</sub>²</span></div>
+      <div class="cost-track"><div class="cost-fill" style="width:37.5%"></div></div>
+      <div class="cost-val">37.5%<span>151.0M / 402.7M</span></div>
     </div>
-    <div class="bar-row alt">
-      <div class="bar-label">1-4-1 稀疏路由<br><span style="color:var(--muted);font-size:12px">2 × 8192² + 4 × 2048²</span></div>
-      <div class="bar-track bar-base" title="1-4-1 稀疏路由：151.0M，为全稠密的 37.5%">
-        <div class="bar-fill" style="width:37.5%">151.0M</div>
-      </div>
+    <div class="cost-row"
+      data-t="线性项 · Σ L"
+      data-io="1-4-1 稀疏：2 × 8192 + 4 × 2048 = 24,576 token"
+      data-ex="6 层全稠密：6 × 8192 = 49,152 token"
+      data-n="MLP 和 QKV / 输出投影都是线性于 token 数的，省下的比例就等于 token 数的比例。"
+      data-ref="占全稠密的 50.0%">
+      <div class="cost-lab">线性项<span>Σ L（MLP / 投影）</span></div>
+      <div class="cost-track"><div class="cost-fill" style="width:50%"></div></div>
+      <div class="cost-val">50.0%<span>24,576 / 49,152</span></div>
+    </div>
+    <div class="cost-axis" aria-hidden="true">
+      <span class="t0" style="left:0">0</span>
+      <span style="left:25%">25%</span>
+      <span style="left:50%">50%</span>
+      <span style="left:75%">75%</span>
+      <span class="t100" style="left:100%">100%（全稠密基线）</span>
     </div>
   </div>
+  <details class="tblview">
+    <summary>查看数据表</summary>
+    <table>
+      <thead><tr><th style="width:150px">开销项</th><th>6 层全稠密</th><th>1-4-1 稀疏路由</th><th style="width:70px">占比</th></tr></thead>
+      <tbody>
+        <tr><td>注意力 Σ L<sub>block</sub>²</td><td class="num">402,653,184<br><span style="color:var(--muted)">6 × 8192²</span></td><td class="num">150,994,944<br><span style="color:var(--muted)">2 × 8192² + 4 × 2048²</span></td><td class="num">37.5%</td></tr>
+        <tr><td>线性 Σ L<sub>block</sub></td><td class="num">49,152 token<br><span style="color:var(--muted)">6 × 8192</span></td><td class="num">24,576 token<br><span style="color:var(--muted)">2 × 8192 + 4 × 2048</span></td><td class="num">50.0%</td></tr>
+      </tbody>
+    </table>
+  </details>
   <figcaption>
-    稀疏路由把注意力矩阵压到全稠密的 <strong>37.5%</strong>。
-    注意这只是注意力那一项；MLP 和投影层是<strong>线性</strong>于 token 数的，同样这组参数下它们降到 50.0%
-    （<code>2×8192 + 4×2048</code> 对 <code>6×8192</code>）。所以端到端的实际加速落在这两个数之间，取决于 <code>D</code> 和 <code>mlp_ratio</code>。
+    端到端的实际加速落在这两个数之间，取决于 <code>D</code> 和 <code>mlp_ratio</code> 把权重放在注意力还是 MLP 上。
+    注意这只是<strong>计算量</strong>的账：gather / scatter 本身也有开销，短序列下 GPU 未必跑满，所以实测墙钟时间一般比 37.5% 高。
   </figcaption>
 </figure>
 
@@ -581,12 +889,12 @@ pre .c{color:var(--muted)}
   <div class="grid-viz">
     <div class="col">
       <h4>第 6 步之后 · 稠密</h4>
-      <p>全部 L 个 token 都参与</p>
+      <p>全部 L 个 token 都参与 · 图示 128 / 128</p>
       <div id="gridDense"></div>
     </div>
     <div class="col">
       <h4>第 7–8 步 · 稀疏</h4>
-      <p>随机保留 L·r 个位置</p>
+      <p>随机保留 L·r 个位置 · 图示 32 / 128</p>
       <div id="gridSparse"></div>
     </div>
   </div>
@@ -775,6 +1083,7 @@ sbatch launch_visualize.sh</pre>
 
 </div>
 
+<div class="figtip" id="figtip" role="tooltip" hidden></div>
 <script>
 (function(){
   var btn = document.getElementById('themeBtn');
@@ -810,6 +1119,61 @@ sbatch launch_visualize.sh</pre>
       el.appendChild(cell);
     }
   }
+
+  // ---- shared hover/focus tooltip for the architecture diagram & cost chart
+  var tip = document.getElementById('figtip');
+  function tipHTML(el){
+    function get(a){ return el.getAttribute(a) || ''; }
+    var s = '<b>' + get('data-t') + '</b>';
+    if (get('data-io')) s += '<p class="tio">' + get('data-io') + '</p>';
+    if (get('data-ex')) s += '<p class="tex">实测 ' + get('data-ex') + '</p>';
+    if (get('data-n'))  s += '<p class="tn">'  + get('data-n')  + '</p>';
+    if (get('data-ref'))s += '<p class="tr">'  + get('data-ref')+ '</p>';
+    return s;
+  }
+  function placeAt(cx, cy){
+    var pad = 12, w = tip.offsetWidth, h = tip.offsetHeight;
+    var x = cx + 18, y = cy + 18;
+    if (x + w + pad > window.innerWidth)  x = cx - w - 18;
+    if (y + h + pad > window.innerHeight) y = cy - h - 18;
+    tip.style.left = Math.max(pad, x) + 'px';
+    tip.style.top  = Math.max(pad, y) + 'px';
+  }
+  function showTip(el, cx, cy){ tip.innerHTML = tipHTML(el); tip.hidden = false; placeAt(cx, cy); }
+  function hideTip(){ tip.hidden = true; }
+
+  function jump(el){
+    var sel = el.getAttribute('data-target');
+    if (!sel) return;
+    var d = document.querySelector(sel);
+    if (!d) return;
+    d.scrollIntoView({behavior:'smooth', block:'center'});
+    d.classList.remove('flash');
+    void d.offsetWidth;
+    d.classList.add('flash');
+  }
+
+  var targets = document.querySelectorAll('[data-t]');
+  for (var i = 0; i < targets.length; i++){
+    (function(el){
+      el.addEventListener('mouseenter', function(e){ showTip(el, e.clientX, e.clientY); });
+      el.addEventListener('mousemove',  function(e){ placeAt(e.clientX, e.clientY); });
+      el.addEventListener('mouseleave', hideTip);
+      el.addEventListener('focus', function(){
+        var r = el.getBoundingClientRect();
+        showTip(el, r.left + r.width / 2, r.bottom - 8);
+      });
+      el.addEventListener('blur', hideTip);
+      if (el.getAttribute('data-target')){
+        el.addEventListener('click', function(){ jump(el); });
+        el.addEventListener('keydown', function(e){
+          if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); jump(el); }
+        });
+      }
+    })(targets[i]);
+  }
+  window.addEventListener('scroll', hideTip, {passive:true});
+
   makeGrid(document.getElementById('gridDense'), 1);
   makeGrid(document.getElementById('gridSparse'), 0.25);
 })();
